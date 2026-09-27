@@ -148,22 +148,22 @@ We break the title into clauses. Every clause is a hard requirement.
 ## 10. Status and next steps
 
 **Done (2026-09-27):**
-- Core docs.
-- Core backend (all of R1–R6 on the data side): region building (synthetic + real), models M0–M3, block-consistent downscaling with uncertainty, validation + report, advisory engine (13 rules, en/hi/kn), SQLite storage, CSV/GeoJSON/GeoTIFF/PDF exports, REST API, CLI. 39 tests pass.
-- Synthetic-demo result (held-out 2024, stations, perfect block forecast), **synthetic data, so not real skill**: M3 cuts RMSE vs. copying the block value by 36% (Tmax), 22% (Tmin), 37% (rain), 41% (wind), 10–13% (RH); heavy-rain CSI 0.06 → 0.40.
+- Docs, backend (M0–M4, M3S, 4 validation modes, advisories en/hi/kn, exports incl. Indic PDFs and SMS, REST API, CLI, live NWP fetch), dashboard + farmer view, Docker files, 52 tests passing, pitch deck and demo script.
+- **Real Dharwad pilot** (145 LGD GPs, open data 2021–2024; details in TECHNICAL.md §16). Held-out 2024 vs panchayat means of gridded truth: Tmax −64%, Tmin −53%, RH/wind ≈ −50%, rain −17% vs copying the block value; heavy-rain CSI 0.19 → 0.53. Forecast mode: small gains (≤ 7% on day 1, ≈ 0 by day 3–5). Unseen blocks: temperature/humidity still −28 to −36%, but rain/wind do no better than interpolation.
+- Synthetic demo (**not real skill**): M3 −36% Tmax, −37% rain at stations; M4 U-Net not better than M3; M3S ≈ no gain (expected with exact gridded truth).
 
 **Next:**
-1. Frontend dashboard (waiting for team instruction).
-2. Get real data for the pilot district: GP boundaries with LGD codes, CDS account for ERA5-Land, station data (questions in §7).
-3. Real-data run and honest validation; spatial CV; forecast-mode test.
-4. Expert review of advisory rules and Hindi/Kannada text.
+1. Station data (IMD AWS, KSNDMC) for Dharwad → point-scale validation and M3S.
+2. IMD block-forecast archive → full-chain validation.
+3. Expert review of advisory rules, crop calendar and Hindi/Kannada text.
+4. Test the Docker / PostgreSQL deployment.
 
 ---
 
 ## 11. Pitch narrative
 
-- **Hook:** "Two villages in the same block, 20 km apart: one gets a downpour, the other stays dry. Today both farmers get the same forecast."
-- **Solution:** Learn each panchayat's local weather signature from 10+ years of data and apply it to every official block forecast.
-- **Proof:** Show error reduction against weather stations, compared with the current practice.
+- **Hook:** "21 July 2024, Dharwad: 144 mm forecast for Benachi, 12 mm for Hallikeri, up to 53 mm apart inside one block. Today both farmers get the same forecast."
+- **Solution:** Learn each panchayat's local weather signature from years of data and apply it to every official block forecast (never contradicting it).
+- **Proof:** Real Dharwad pilot, four honest tests (large gains on the held-out year; small with real forecast errors; station data next).
 - **Impact:** Village-specific advice on irrigation, spraying, sowing and harvesting, in the farmer's language.
 - **Scale:** Cheap to run (no new weather model needed); covers ~2.5 lakh panchayats from existing forecasts.

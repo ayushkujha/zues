@@ -71,6 +71,16 @@ pcast train-unet demo                     # optional deep-learning model (pip in
 
 > The **demo** district is synthetic (generated terrain, boundaries and weather): it proves the pipeline end to end, and its scores are **not** real-world skill. The **Dharwad pilot** uses real LGD panchayat boundaries, real terrain and land cover, and real reanalysis/satellite weather (see [docs/TECHNICAL.md §16](docs/TECHNICAL.md)).
 
+## Real pilot: Dharwad district, Karnataka
+
+145 LGD-coded Gram Panchayats in 8 blocks, built entirely from open data (CHIRPS rain, ERA5-Land/ERA5, Copernicus DEM, ESA WorldCover), July 2021 to December 2024. On the held-out year 2024 (truth: panchayat means of those gridded fields), LightGBM cuts the error of copying the block value by:
+
+| Max temp | Min temp | Humidity | Wind | Rain | Heavy-rain CSI |
+|---:|---:|---:|---:|---:|---:|
+| −64% | −53% | ≈ −50% | −51% | −17% | 0.19 → 0.53 |
+
+Honest caveats: with realistic forecast errors the gain is small (≤ 7% on day 1, ≈ 0 by day 3–5); in blocks never seen in training, temperature and humidity still improve but rain and wind do no better than interpolation; and the gridded truth (5–25 km) understates village-scale differences, so station data is the next test. Full details: [docs/TECHNICAL.md §16](docs/TECHNICAL.md).
+
 ## What you get
 
 - **Dashboard:** panchayat forecast map for every variable and day, block-vs-panchayat compare slider, panchayat detail with charts and uncertainty, advisory review (approve/edit), validation results, forecast upload / live fetch.
