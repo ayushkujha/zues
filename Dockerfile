@@ -22,6 +22,12 @@ COPY src/ src/
 RUN pip install --no-cache-dir ".[postgres]"
 COPY configs/ configs/
 COPY --from=web /web/dist web/dist
+# Bake the synthetic demo region + models + one forecast run into the image (~5 min, ~210 MB)
+# so hosts with ephemeral disks (Render) serve data from the first request.
+# docker-compose sets this to 0 because it mounts ./data, ./models and ./reports instead.
+ARG PCAST_BAKE_DEMO=1
+RUN if [ "$PCAST_BAKE_DEMO" = "1" ]; then pcast demo --fast; fi
 VOLUME ["/app/data", "/app/models", "/app/reports"]
 EXPOSE 8000
-CMD ["pcast", "serve", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts like Render inject $PORT; default to 8000 elsewhere.
+CMD ["sh", "-c", "exec pcast serve --host 0.0.0.0 --port ${PORT:-8000}"]

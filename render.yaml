@@ -1,0 +1,19 @@
+# Render Blueprint: API + dashboard as one Docker web service.
+#   Render dashboard -> New -> Blueprint -> pick this repo.
+# The image bakes in the synthetic demo region (see Dockerfile), so the first build
+# takes ~10 min. The disk is ephemeral: uploads and advisory edits reset on restart.
+services:
+  - type: web
+    name: panchayatcast
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    envVars:
+      # Protects uploads, forecast runs and advisory edits. Copy it from the service's
+      # Environment tab and paste it on the dashboard's Runs page.
+      - key: PCAST_API_KEY
+        generateValue: true
+      # Allowed browser origins, comma-separated. Set to your Vercel URL if the frontend is hosted there.
+      - key: PCAST_CORS_ORIGINS
+        value: "*"
