@@ -71,25 +71,28 @@ flowchart LR
 
 ## 2. Components
 
-| # | Component | Responsibility | Tech |
-|---|---|---|---|
-| C1 | **Ingest** | Download/load historical data, static layers, boundaries, block forecasts; validate schema and units | Python, cdsapi, imdlib, requests |
-| C2 | **Preprocess** | Clip to region, reproject, regrid to the 1 km target grid, build block-mean (coarse) fields | xarray, rioxarray, rasterio, xESMF (optional) |
-| C3 | **Feature store** | Static features per grid cell (elevation, slope, land cover…) and fine/coarse climatology ratios | Zarr / NetCDF + Parquet |
-| C4 | **Training** | Train models M1–M4 per variable | scikit-learn, LightGBM, PyTorch |
-| C5 | **Validation harness** | Metrics vs. stations and fine grids, baseline comparisons, reports | pandas, numpy, matplotlib |
-| C6 | **Model registry** | Versioned model files + metadata (data range, metrics, config hash) | Filesystem (`models/`) + JSON manifest; MLflow optional |
-| C7 | **Downscaling engine** | Block forecast → 1 km grid forecast per variable and lead day | Python package |
-| C8 | **Post-processor** | Physical limits, block consistency, uncertainty bands, wind u/v → speed/dir | Python |
-| C9 | **Aggregator** | Grid → panchayat values via area-weighted zonal statistics | exactextract / rasterstats |
-| C10 | **Advisory engine** | YAML rules × crop calendar × forecast → advisories with severity; translation | Python, YAML; LLM/MT for wording (optional) |
-| C11 | **Database** | Boundaries, forecasts, advisories, runs, metrics | PostgreSQL + PostGIS |
-| C12 | **Raster store** | Gridded outputs as Cloud-Optimized GeoTIFFs | Local disk / MinIO (S3-compatible) |
-| C13 | **API** | REST endpoints for maps, panchayat data, advisories, exports, uploads | FastAPI |
-| C14 | **Worker / scheduler** | Runs forecast jobs (on upload or on schedule), training jobs | APScheduler or Celery + Redis |
-| C15 | **Web dashboard** | Scientist/officer UI | React, TypeScript, MapLibre GL |
-| C16 | **Farmer view** | Lightweight mobile page | Same React app, separate route (or server-rendered HTML) |
-| C17 | **Notifier** (stretch) | SMS/WhatsApp/IVR dispatch | Provider API (TBD) |
+| # | Component | Responsibility | Implemented as | Status |
+|---|---|---|---|---|
+| C1 | **Ingest** | Load boundaries, static layers, daily fields, stations; download open data; validate block forecasts | `ingest/` (real.py, synthetic.py, download.py, block_forecast.py) | ✅ |
+| C2 | **Preprocess** | Regrid to the 1 km grid, build block-mean (coarse) fields | `ingest/real.py`, `features/dataset.py` (xarray, rasterio) | ✅ |
+| C3 | **Feature store** | Static features per cell + per-cell monthly climatology | `static.nc` per region; climatology saved with each model | ✅ |
+| C4 | **Training** | Fit M2 lapse rates and M3 LightGBM per variable | `models/train.py`, `models/gbm.py` | ✅ (M4 planned) |
+| C5 | **Validation harness** | Metrics vs. stations and GP means, baselines, report | `validate/` | ✅ |
+| C6 | **Model registry** | Versioned models + metadata; rejects models from an older region build | `models/registry.py`, `models/<region>/<version>/` | ✅ |
+| C7 | **Downscaling engine** | Block forecast → 1 km grid per variable and lead day | `downscale/engine.py` | ✅ |
+| C8 | **Post-processor** | Block consistency, physical limits, uncertainty/confidence, wind u/v → speed/dir | `downscale/postprocess.py` | ✅ |
+| C9 | **Aggregator** | Grid → panchayat (sparse area-weight matrix) | `downscale/aggregate.py` | ✅ |
+| C10 | **Advisory engine** | YAML rules × crop calendar × forecast → advisories; hi/kn templates | `advisory/` | ✅ |
+| C11 | **Database** | Runs, forecasts, advisories, metrics | SQLite default / PostgreSQL (`storage/db.py`) | ✅ |
+| C12 | **Raster store** | Gridded outputs | `data/runs/<run_id>/grid.nc`; GeoTIFF on request | ✅ |
+| C13 | **API** | Maps, panchayat data, advisories, exports, uploads | FastAPI (`api/app.py`) | ✅ |
+| C14 | **Worker / scheduler** | Runs forecast jobs after upload | FastAPI BackgroundTasks (in-process) | ✅ (scheduled pulls planned) |
+| C15 | **Web dashboard** | Scientist/officer UI: map, compare, advisories, validation, runs | React, TypeScript, MapLibre GL (`web/`), served by FastAPI | ✅ |
+| C16 | **Farmer view** | Mobile page in en/hi/kn with GPS lookup and read-aloud | Same React app, route `#/farmer` | ✅ |
+| C17 | **Notifier** | SMS list export (per panchayat, per language) for bulk gateways; direct sending needs a provider account | `exports/sms.py` | ✅ export / ⏳ sending |
+| C18 | **CLI** | Build, pilot, train, evaluate, run, fetch, watch, serve | `pcast` (Typer) | ✅ |
+| C19 | **Live forecast** | Today's NWP forecast at block centroids → block forecast table | `ingest/nwp.py` (Open-Meteo) | ✅ |
+| C20 | **Open-data ingest** | LGD boundaries (range reads), CHIRPS COGs, ERA5-Land/ERA5 archive, DEM, WorldCover | `ingest/lgd.py`, `download.py`, `openmeteo_archive.py` | ✅ |
 
 ---
 
@@ -102,11 +105,11 @@ sequenceDiagram
     participant API as FastAPI
     participant W as Worker
     participant DS as Downscaling Engine
-    participant DB as PostGIS
+    participant DB as Database
     participant RS as Raster Store
 
     Sci->>Web: Upload block forecast CSV
-    Web->>API: POST /runs (file)
+    Web->>API: POST /regions/{id}/runs (file)
     API->>API: Validate schema, units, LGD codes
     API->>DB: Insert forecast_run (status=queued) + block_forecasts
     API->>W: Enqueue run_id
@@ -123,7 +126,7 @@ sequenceDiagram
     API-->>Web: done
     Web->>API: GET /map, /panchayats/{lgd}/forecast, /advisories
     Sci->>Web: Review, edit, approve advisories
-    Web->>API: POST /advisories/approve
+    Web->>API: PATCH /advisories/{id} (status=approved)
     Sci->>Web: Export PDF bulletin
 ```
 
@@ -159,7 +162,15 @@ Key idea: **block forecasts in production are block averages**, so during traini
 
 ## 5. Deployment
 
-### 5.1 Hackathon / demo (single machine)
+### 5.0 Current (implemented): one process on a laptop
+
+`pcast serve` runs FastAPI with uvicorn and serves the built dashboard (`web/dist`) at `/`. Uploaded or fetched forecasts are processed in-process with BackgroundTasks, the DB is SQLite (`data/panchayatcast.db`), and gridded outputs are NetCDF files in `data/runs/`. No Docker needed; it works offline once the region and models are built (except the basemap tiles and live fetch).
+
+Scheduling: `pcast watch <region> --days tue,fri --at 06:00` keeps fetching on AAS bulletin days; for production, point Windows Task Scheduler or cron at `pcast fetch <region>`.
+
+### 5.1 Docker (files provided, untested here)
+
+`Dockerfile` (two stages: Node builds the dashboard, Python runs the API) and `docker-compose.yml` (API + PostgreSQL 16). `docker compose up --build`, then `docker compose run --rm api pcast demo`. They were written but not run on the development machine (no Docker there), so test them before relying on them.
 
 ```mermaid
 flowchart LR

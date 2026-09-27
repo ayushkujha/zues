@@ -1,0 +1,70 @@
+# ILLUSTRATIVE crop calendar for the synthetic demo district.
+# Replace with the pilot district's official calendar (State Agriculture Dept / KVK).
+# sowing: start of the sowing window (MM-DD). stages: in order, with durations in days.
+
+district: Synthetic Demo District
+
+crops:
+  paddy:
+    label: Paddy
+    season: kharif
+    sowing: "06-15"
+    stages:
+      - {stage: sowing, days: 20}
+      - {stage: vegetative, days: 50}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}
+  maize:
+    label: Maize
+    season: kharif
+    sowing: "06-10"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 45}
+      - {stage: flowering, days: 25}
+      - {stage: maturity, days: 30}
+  soybean:
+    label: Soybean
+    season: kharif
+    sowing: "06-20"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 35}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 25}
+  groundnut:
+    label: Groundnut
+    season: kharif
+    sowing: "06-25"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 40}
+      - {stage: flowering, days: 35}
+      - {stage: maturity, days: 25}
+  cotton:
+    label: Cotton
+    season: kharif
+    sowing: "06-05"
+    stages:
+      - {stage: sowing, days: 20}
+      - {stage: vegetative, days: 60}
+      - {stage: flowering, days: 60}
+      - {stage: maturity, days: 50}
+  chickpea:
+    label: Chickpea
+    season: rabi
+    sowing: "10-20"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 35}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}
+  sorghum:
+    label: Rabi sorghum
+    season: rabi
+    sowing: "10-01"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 40}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}

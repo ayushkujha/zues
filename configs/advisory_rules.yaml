@@ -1,0 +1,145 @@
+# Agromet advisory rules.
+#
+# IMPORTANT: these are illustrative starting rules written from general agromet
+# practice. They must be reviewed and tuned with the District Agromet Unit / KVK
+# (thresholds, crops, stages and wording) before real use.
+#
+# Syntax (see src/panchayatcast/advisory/expr.py):
+#   variables: rain_mm, tmax_c, tmin_c, rh_max_pct, rh_min_pct, wind_kmph, wind_dir_deg, cloud_okta
+#   days: d1..d5; slices are inclusive (rain_mm[d1:d3] = days 1, 2, 3)
+#   functions: max, min, mean, sum, any, all, count, abs,
+#              date_of_max(var, dA, dB), first_date_below(var, threshold, dA, dB)
+#   crops/stages: omit (or "*") for crop-agnostic rules; stage filters need a crop list
+#   params: named expressions usable in text as {name} or {name:.0f}; {crop} and {stage} are built in
+#
+# IMD 24 h rainfall categories (mm): very light 0.1-2.4, light 2.5-15.5,
+# moderate 15.6-64.4, heavy 64.5-115.5, very heavy 115.6-204.4, extremely heavy >= 204.5
+
+rules:
+  - id: HEAVY_RAIN
+    category: rainfall
+    when: "max(rain_mm[d1:d3]) >= 64.5"
+    severity: red
+    window: [d1, d3]
+    params:
+      rain: "max(rain_mm[d1:d3])"
+      day: "date_of_max(rain_mm, d1, d3)"
+    text_en: "Heavy rain ({rain:.0f} mm) expected on {day}. Drain excess water from fields, postpone sowing and fertiliser application, and move harvested produce to a safe, covered place."
+
+  - id: SPRAY_POSTPONE_RAIN
+    category: plant_protection
+    when: "max(rain_mm[d1:d2]) > 10"
+    severity: orange
+    window: [d1, d2]
+    params:
+      rain: "max(rain_mm[d1:d2])"
+    text_en: "Rain of up to {rain:.0f} mm is expected in the next 2 days. Postpone pesticide and fertiliser spraying until a dry day."
+
+  - id: FERTILISER_WASHOFF
+    category: nutrient
+    when: "15.6 <= max(rain_mm[d1:d2]) < 64.5"
+    severity: yellow
+    window: [d1, d2]
+    params:
+      rain: "max(rain_mm[d1:d2])"
+    text_en: "Moderate rain ({rain:.0f} mm) expected. Delay top-dressing of fertiliser to avoid wash-off."
+
+  - id: SKIP_IRRIGATION
+    category: irrigation
+    when: "sum(rain_mm[d1:d3]) >= 25"
+    severity: green
+    window: [d1, d3]
+    params:
+      total: "sum(rain_mm[d1:d3])"
+    text_en: "About {total:.0f} mm of rain is expected over the next 3 days. Skip irrigation and save water."
+
+  - id: DRY_SPELL_IRRIGATE
+    category: irrigation
+    crops: [paddy, maize, cotton, soybean, groundnut, greengram, chickpea, sorghum, wheat]
+    stages: [vegetative, flowering]
+    when: "sum(rain_mm[d1:d5]) < 2.5 and max(tmax_c[d1:d5]) >= 33"
+    severity: yellow
+    window: [d1, d5]
+    params:
+      tmax: "max(tmax_c[d1:d5])"
+    text_en: "Dry weather with temperatures up to {tmax:.0f}°C for the next 5 days. {crop} is at the {stage} stage: give protective irrigation and use mulch to conserve soil moisture."
+
+  - id: HEAT_STRESS_FLOWERING
+    category: temperature
+    crops: [paddy, maize, cotton, soybean, groundnut, greengram, chickpea, sorghum, wheat]
+    stages: [flowering]
+    when: "max(tmax_c[d1:d3]) >= 36"
+    severity: orange
+    window: [d1, d3]
+    params:
+      tmax: "max(tmax_c[d1:d3])"
+      day: "date_of_max(tmax_c, d1, d3)"
+    text_en: "High temperature ({tmax:.0f}°C) on {day} during the flowering stage of {crop}. Apply light irrigation in the evening to reduce heat stress."
+
+  - id: HEAT_LIVESTOCK
+    category: livestock
+    when: "max(tmax_c[d1:d3]) >= 39"
+    severity: orange
+    window: [d1, d3]
+    params:
+      tmax: "max(tmax_c[d1:d3])"
+    text_en: "Very hot days ahead (up to {tmax:.0f}°C). Keep livestock in shade, provide plenty of drinking water, and avoid field work between 12 noon and 3 pm."
+
+  - id: COLD_NIGHTS
+    category: temperature
+    when: "min(tmin_c[d1:d3]) <= 10"
+    severity: yellow
+    window: [d1, d3]
+    params:
+      tmin: "min(tmin_c[d1:d3])"
+    text_en: "Cold nights expected (minimum {tmin:.0f}°C). Give light irrigation in the evening to protect crops, and keep young livestock warm."
+
+  - id: FUNGAL_DISEASE_RISK
+    category: plant_protection
+    crops: [paddy, groundnut, soybean, greengram, chickpea, maize, wheat]
+    stages: [vegetative, flowering]
+    when: "mean(rh_max_pct[d1:d3]) >= 90 and 22 <= mean(tmax_c[d1:d3]) <= 32"
+    severity: yellow
+    window: [d1, d3]
+    params:
+      rh: "mean(rh_max_pct[d1:d3])"
+    text_en: "Warm, humid weather (humidity above {rh:.0f}%) favours fungal diseases in {crop}. Monitor the crop closely and take plant protection measures on a dry day."
+
+  - id: HIGH_WIND
+    category: plant_protection
+    when: "max(wind_kmph[d1:d2]) >= 20"
+    severity: yellow
+    window: [d1, d2]
+    params:
+      wind: "max(wind_kmph[d1:d2])"
+    text_en: "Strong winds (up to {wind:.0f} km/h) expected. Avoid spraying, and give support to tall crops and young trees."
+
+  - id: SOWING_FAVOURABLE
+    category: sowing
+    crops: [paddy, maize, soybean, groundnut, greengram, cotton, chickpea, sorghum, wheat]
+    stages: [sowing]
+    when: "10 <= sum(rain_mm[d1:d3]) <= 60 and max(rain_mm[d1:d3]) < 64.5"
+    severity: green
+    window: [d1, d3]
+    params:
+      total: "sum(rain_mm[d1:d3])"
+    text_en: "Good soil moisture expected ({total:.0f} mm over 3 days). Conditions are favourable for sowing {crop}."
+
+  - id: HARVEST_RAIN
+    category: harvest
+    crops: [paddy, maize, soybean, groundnut, greengram, cotton, chickpea, sorghum, wheat]
+    stages: [maturity]
+    when: "max(rain_mm[d1:d3]) >= 5"
+    severity: orange
+    window: [d1, d3]
+    params:
+      rain: "max(rain_mm[d1:d3])"
+      day: "date_of_max(rain_mm, d1, d3)"
+    text_en: "Rain ({rain:.0f} mm) expected on {day} while {crop} is ready for harvest. Harvest the mature crop before the rain if possible, and store produce under cover."
+
+  - id: SPRAY_WINDOW
+    category: plant_protection
+    when: "max(rain_mm[d1:d2]) < 1 and max(wind_kmph[d1:d2]) < 15"
+    severity: green
+    window: [d1, d2]
+    text_en: "Dry and calm weather in the next 2 days: a good window for spraying if needed."

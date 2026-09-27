@@ -1,0 +1,52 @@
+# REAL pilot: Dharwad district, Karnataka.
+#
+# Boundaries: 145 Gram Panchayats in 8 blocks, LGD-coded (LGD panchayat layer, CC0,
+#   via india-geodata / bharatlas). Urban local bodies (city wards, town councils)
+#   are not Gram Panchayats and are excluded.
+# Terrain: Copernicus DEM GLO-30. Land cover: ESA WorldCover 2021.
+# Daily "fine" fields (the training truth):
+#   rain:            CHIRPS v2 (0.05°)
+#   Tmax/Tmin/RH:    ERA5-Land (0.1°) via Open-Meteo archive
+#   wind, cloud:     ERA5 (0.25°) via Open-Meteo archive (u/v from mean speed + dominant direction)
+# No station data yet: validation is against panchayat means of these fields.
+#
+# Build:   pcast pilot dharwad      (downloads everything, then builds the region)
+
+region_id: dharwad
+name: Dharwad District, Karnataka
+source: real
+
+bbox: [74.70, 15.00, 75.60, 15.75]
+grid_res_deg: 0.01
+
+splits:
+  train: ["2021-07-01", "2023-06-30"]
+  val:   ["2023-07-01", "2023-12-31"]
+  test:  ["2024-01-01", "2024-12-31"]
+
+languages: [en, hi, kn]
+crop_calendar: configs/crop_calendar/dharwad.yaml
+
+real:
+  period: ["2021-07-01", "2024-12-31"]
+  lgd_district: {state: Karnataka, district: Dharwad}
+  boundaries:
+    panchayats:
+      path: data/raw/dharwad/boundaries/panchayats.geojson
+      gp_lgd_col: gp_lgd
+      gp_name_col: gp_name
+      block_lgd_col: block_lgd
+      block_name_col: block_name
+  fine:
+    rain_mm: data/raw/dharwad/fine/rain_mm.nc
+    tmax_c: data/raw/dharwad/fine/tmax_c.nc
+    tmin_c: data/raw/dharwad/fine/tmin_c.nc
+    rh_max_pct: data/raw/dharwad/fine/rh_max_pct.nc
+    rh_min_pct: data/raw/dharwad/fine/rh_min_pct.nc
+    wind_u: data/raw/dharwad/fine/wind_u.nc
+    wind_v: data/raw/dharwad/fine/wind_v.nc
+    cloud_okta: data/raw/dharwad/fine/cloud_okta.nc
+  static:
+    dem: data/raw/dharwad/static/dem.tif
+    worldcover: data/raw/dharwad/static/worldcover.tif
+  stations: {}

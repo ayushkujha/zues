@@ -1,0 +1,28 @@
+# Synthetic demo region.
+# Everything in this region (terrain, boundaries, weather, stations) is GENERATED.
+# It exists so the full pipeline can run end-to-end before real data is available.
+# Metrics computed on it demonstrate the method, NOT real-world skill.
+
+region_id: demo
+name: Synthetic Demo District
+source: synthetic
+
+# west, south, east, north (degrees)
+bbox: [74.80, 15.20, 75.40, 15.80]
+grid_res_deg: 0.01
+
+splits:
+  train: ["2018-01-01", "2022-12-31"]
+  val:   ["2023-01-01", "2023-12-31"]
+  test:  ["2024-01-01", "2024-12-31"]
+
+languages: [en, hi, kn]
+crop_calendar: configs/crop_calendar/demo.yaml
+
+synthetic:
+  seed: 42
+  n_blocks: 7
+  n_gps: 140
+  n_stations: 30
+  start_date: "2018-01-01"
+  end_date: "2024-12-31"
