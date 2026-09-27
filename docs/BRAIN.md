@@ -5,7 +5,7 @@
 
 **Project working name:** PanchayatCast (rename freely)
 **SIH Problem Statement ID:** 26074
-**Doc status:** v0.1 (2026-09-26). Documentation phase only; no code yet.
+**Doc status:** v0.2 (2026-09-27). Core backend implemented and tested; frontend is next.
 
 ---
 
@@ -72,7 +72,19 @@ We break the title into clauses. Every clause is a hard requirement.
 | D-004 | 2026-09-26 | Use **LGD codes** as the primary key for blocks and panchayats | Official Govt. of India identifiers | Accepted |
 | D-005 | 2026-09-26 | Default to **block-consistent** output (area-weighted panchayat mean equals the block forecast) | Respects the official IMD forecast; avoids contradicting it | Proposed (confirm with mentor) |
 | D-006 | 2026-09-26 | Rule-based advisory engine with rules in YAML; LLM only for translation/wording | Advisories must be traceable and auditable | Accepted |
-| D-007 | 2026-09-26 | Stack: Python (xarray, geopandas, scikit-learn, LightGBM, PyTorch), FastAPI, PostGIS, React + MapLibre | Standard, open-source, team-friendly | Proposed |
+| D-007 | 2026-09-26 | Stack: Python (xarray, geopandas, LightGBM), FastAPI, React + MapLibre | Standard, open-source, team-friendly | Accepted (backend built) |
+| D-008 | 2026-09-26 | Build a clearly-labelled **synthetic demo district** (known local weather effects) so the whole pipeline runs and is tested before real data arrives | Real data access (IMD archives, GP boundaries, CDS account) is not in hand yet | Accepted |
+| D-009 | 2026-09-26 | **SQLite by default**, PostgreSQL via `PCAST_DATABASE_URL`; geometries kept in GeoJSON files, not the DB | Zero-setup on a laptop (no Docker available); same schema on both backends | Accepted |
+| D-010 | 2026-09-26 | Blocks are **derived as the union of their GPs** | Guarantees GPs nest exactly inside blocks, so block consistency is exact | Accepted |
+| D-011 | 2026-09-26 | Rain block consistency: scale down freely, scale up at most 3×, spread any remaining deficit evenly | Pure multiplicative scaling piles a wet block's rain onto a few cells | Accepted |
+| D-012 | 2026-09-26 | Train on **emulated block inputs** (block means of historical fine fields) | Mimics the operational input exactly; works without a forecast archive | Accepted (replace/augment with real forecast archives if IMD provides them) |
+| D-013 | 2026-09-26 | Virtual environment lives outside OneDrive (`%USERPROFILE%\.venvs\panchayatcast`) | OneDrive sync locks venv files and breaks installs | Accepted |
+| D-014 | 2026-09-27 | Real pilot = **Dharwad district, Karnataka**, built from open data only: LGD GP polygons (CC0), Copernicus DEM, WorldCover, CHIRPS rain, ERA5-Land/ERA5 via Open-Meteo | No CDS account, IMD archive or station access yet; Karnataka has dense AWS networks for later validation | Accepted |
+| D-015 | 2026-09-27 | Live block forecasts from **Open-Meteo NWP at block centroids** (`source=nwp`) as a stand-in for the IMD feed | Demonstrates the operational chain today; clearly labelled as not official | Accepted |
+| D-016 | 2026-09-27 | Four validation modes (held-out year, forecast mode by lead, spatial CV without climatology, station CV) | Each answers a question judges will ask; forecast mode and spatial CV guard against over-claiming | Accepted |
+| D-017 | 2026-09-27 | Station correction (M3S) and rain quantile mapping are **switched on only when cross-validation shows a gain** | Avoid adding complexity that does not help | Accepted |
+| D-018 | 2026-09-27 | M4 U-Net kept optional/experimental | Needs torch and more data; LightGBM (M3) is strong, fast and explainable | Accepted |
+| D-019 | 2026-09-27 | Basemap: muted OpenStreetMap raster tiles | CARTO basemaps now require an API key | Accepted |
 
 ---
 
@@ -109,6 +121,8 @@ We break the title into clauses. Every clause is a hard requirement.
 | Rainfall is patchy and hard to downscale | Low skill for rain | Two-stage model (occurrence + amount), categorical metrics, probabilistic output |
 | Panchayat boundaries unavailable | Cannot aggregate | Fall back to village points or a grid, then map to LGD codes |
 | Scope creep (apps, SMS, etc.) | Core not polished | Core R1–R6 first; stretch items only after validation is done |
+| Real "fine" truth is coarse (ERA5-Land ~9 km, CHIRPS ~5 km) | The model can only learn detail present in its training truth; judges may ask | Be upfront about it; validate against stations (point truth); add station data / IMD high-res products to training next |
+| Synthetic-demo numbers quoted as real skill | Credibility loss | Every synthetic output is labelled; report and bulletin carry warnings; quote only real-data numbers as skill |
 
 ---
 
@@ -133,14 +147,16 @@ We break the title into clauses. Every clause is a hard requirement.
 
 ## 10. Status and next steps
 
-**Done:** Problem interpretation and core docs (BRAIN, CLAUDE, PRD, DESIGN, SYSTEM_ARCHITECTURE, TECHNICAL).
+**Done (2026-09-27):**
+- Core docs.
+- Core backend (all of R1–R6 on the data side): region building (synthetic + real), models M0–M3, block-consistent downscaling with uncertainty, validation + report, advisory engine (13 rules, en/hi/kn), SQLite storage, CSV/GeoJSON/GeoTIFF/PDF exports, REST API, CLI. 39 tests pass.
+- Synthetic-demo result (held-out 2024, stations, perfect block forecast), **synthetic data, so not real skill**: M3 cuts RMSE vs. copying the block value by 36% (Tmax), 22% (Tmin), 37% (rain), 41% (wind), 10–13% (RH); heavy-rain CSI 0.06 → 0.40.
 
-**Next (waiting for team instructions):**
-1. Confirm pilot district and data availability (questions in §7).
-2. Set up the repository skeleton.
-3. Build the data ingestion pipeline.
-4. Baseline models M0–M2 and the validation harness.
-5. ML model M3, then dashboard, then advisories.
+**Next:**
+1. Frontend dashboard (waiting for team instruction).
+2. Get real data for the pilot district: GP boundaries with LGD codes, CDS account for ERA5-Land, station data (questions in §7).
+3. Real-data run and honest validation; spatial CV; forecast-mode test.
+4. Expert review of advisory rules and Hindi/Kannada text.
 
 ---
 

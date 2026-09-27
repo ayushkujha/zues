@@ -1,0 +1,56 @@
+# Template for a REAL pilot region. Copy to configs/region.<id>.yaml and fill in.
+# Build with:  pcast build-region configs/region.<id>.yaml
+
+region_id: pilot
+name: "<District name>"
+source: real
+
+# west, south, east, north (degrees). Add a small buffer around the district.
+bbox: [74.70, 15.10, 75.50, 15.90]
+grid_res_deg: 0.01
+
+splits:
+  train: ["2010-01-01", "2020-12-31"]
+  val:   ["2021-01-01", "2022-12-31"]
+  test:  ["2023-01-01", "2024-12-31"]
+
+languages: [en, hi, kn]
+crop_calendar: configs/crop_calendar/demo.yaml   # replace with the district's calendar
+
+real:
+  period: ["2010-01-01", "2024-12-31"]
+
+  boundaries:
+    # Gram Panchayat polygons (any format GeoPandas can read). Blocks are derived
+    # by dissolving GPs on block_lgd, which guarantees GPs nest inside blocks.
+    panchayats:
+      path: data/raw/boundaries/panchayats.geojson
+      gp_lgd_col: gp_lgd
+      gp_name_col: gp_name
+      block_lgd_col: block_lgd
+      block_name_col: block_name
+      district_lgd: null          # optional filter
+
+  # Fine-resolution daily fields already on disk (NetCDF, dims time/lat/lon).
+  # Produce them with `pcast download era5land` and `pcast download chirps`,
+  # or point to your own files. Variables must use PanchayatCast names/units.
+  fine:
+    rain_mm: data/raw/chirps/rain_mm.nc
+    tmax_c: data/raw/era5land/tmax_c.nc
+    tmin_c: data/raw/era5land/tmin_c.nc
+    rh_max_pct: data/raw/era5land/rh_max_pct.nc
+    rh_min_pct: data/raw/era5land/rh_min_pct.nc
+    wind_u: data/raw/era5land/wind_u.nc
+    wind_v: data/raw/era5land/wind_v.nc
+    cloud_okta: data/raw/era5/cloud_okta.nc
+
+  # Static layers. If a path is missing it is downloaded from open data (DEM,
+  # WorldCover) using windowed reads of Cloud-Optimized GeoTIFFs.
+  static:
+    dem: data/raw/static/dem.tif
+    worldcover: data/raw/static/worldcover.tif
+
+  # Station observations (long format CSV: station_id,date,variable,value)
+  stations:
+    meta: data/raw/stations/stations.csv            # station_id,name,lat,lon,elev_m,source
+    observations: data/raw/stations/observations.csv

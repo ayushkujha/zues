@@ -1,6 +1,6 @@
 # DESIGN.md: UI/UX Design
 
-**Version:** 0.1 · **Date:** 2026-09-26
+**Version:** 0.2 · **Date:** 2026-09-27 · Implemented in `web/` (see TECHNICAL.md §15)
 
 ---
 
@@ -205,7 +205,7 @@ Always pair colour with an icon and label so the meaning never depends on colour
 ---
 
 ## 7. Map styling
-- Basemap: light, low-detail (roads and place names muted) so the data colours stand out.
+- Basemap: OpenStreetMap raster tiles, desaturated (and darkened in dark mode) so the data colours stand out; can be switched off. (CARTO basemaps now need an API key.)
 - Panchayat borders: 0.5 px, semi-transparent. Block borders: 2 px dark. District border: 3 px.
 - Selected panchayat: 3 px accent outline.
 - Use simplified geometries per zoom level for performance.

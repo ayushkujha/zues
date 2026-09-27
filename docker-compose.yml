@@ -1,0 +1,35 @@
+# Local deployment with PostgreSQL.
+#   docker compose up --build -d
+#   docker compose run --rm api pcast demo      # first time: build demo region + models
+#   open http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: panchayatcast
+      POSTGRES_USER: pcast
+      POSTGRES_PASSWORD: pcast-dev-only   # change for any shared deployment
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcast -d panchayatcast"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PCAST_DATABASE_URL: postgresql+psycopg://pcast:pcast-dev-only@db:5432/panchayatcast
+      # PCAST_API_KEY: set-a-secret-to-protect-uploads-and-edits
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+
+volumes:
+  pgdata:

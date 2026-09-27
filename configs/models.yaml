@@ -1,0 +1,38 @@
+# Model training and post-processing settings.
+
+seed: 7
+default_model: M3
+
+interpolation:
+  idw_power: 2.0
+  min_distance_km: 1.0
+
+training:
+  train_rows: 300000      # sampled (day, cell) rows per variable
+  val_rows: 60000
+  rain_wet_threshold_mm: 0.1
+
+lightgbm:
+  learning_rate: 0.05
+  num_leaves: 63
+  min_data_in_leaf: 100
+  feature_fraction: 0.9
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  lambda_l2: 1.0
+
+rounds:
+  mean: 800
+  quantile: 400
+  early_stopping: 50
+
+quantiles: [0.1, 0.9]
+
+consistency:
+  enabled: true
+  # strict: a block forecast of 0 mm keeps every panchayat at 0 mm
+  rain_mode: strict
+  # when the model under-predicts a wet block, scale up by at most this factor,
+  # then spread the remaining deficit evenly over the block
+  rain_max_scale: 3.0
+  iterations: 3

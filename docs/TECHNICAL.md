@@ -1,6 +1,6 @@
 # TECHNICAL.md: Technical Specification
 
-**Version:** 0.1 · **Date:** 2026-09-26
+**Version:** 0.2 · **Date:** 2026-09-26 · Core backend implemented (see §14 for status)
 
 ---
 
@@ -16,279 +16,227 @@ $$
 \hat{y}_p = \sum_{i \in p} w_{i,p}\, \hat{y}_i
 $$
 
-- $I$: interpolation of block values (so values change smoothly across block borders)
+- $I$: inverse-distance interpolation of block values (so values change smoothly across block borders)
 - $\mathbf{x}_i$: static and seasonal features of cell $i$ (elevation, land cover, climatology…)
 - $f_v$: model trained on historical data
-- $w_{i,p}$: area fraction of cell $i$ inside panchayat $p$ (sums to 1)
+- $w_{i,p}$: area fraction of panchayat $p$ that falls in cell $i$ (sums to 1 over $i$)
+
+Everything is matrix algebra on "active" cells (cells overlapping at least one panchayat), see `src/panchayatcast/geometry.py`:
+
+| Operation | Matrix | Shape |
+|---|---|---|
+| panchayat means | `W_gp` (sparse, rows sum to 1) | n_gp × n_cells |
+| block means | `W_block` (sparse, rows sum to 1) | n_block × n_cells |
+| interpolation | `idw` (dense, rows sum to 1) | n_cells × n_block |
+
+Blocks are defined as the **union of their panchayats**, so block means are exactly the area-weighted means of panchayat values.
 
 ---
 
 ## 2. Variables
 
-| Name | Unit | Aggregation grid→GP | Notes |
+| Name | Unit | Modelled as | Notes |
 |---|---|---|---|
-| `rain_mm` | mm/day | area-weighted mean (+ max as extra field) | 08:30–08:30 IST rain day |
-| `tmax_c` | °C | area-weighted mean | Lapse-rate sensitive |
-| `tmin_c` | °C | area-weighted mean | Lapse-rate + valley cold-pooling |
-| `rh_max_pct` | % | mean, clip 0–100 | Morning RH |
-| `rh_min_pct` | % | mean, clip 0–100 | Afternoon RH |
-| `wind_kmph` | km/h | via u/v mean | Terrain exposure |
-| `wind_dir_deg` | ° (from) | via u/v mean | Meteorological convention |
-| `cloud_okta` | okta 0–8 | mean, round to int for display | Mostly interpolated |
+| `rain_mm` | mm/day | `rain_mm` (two-stage) | 08:30–08:30 IST rain day |
+| `tmax_c` | °C | `tmax_c` | Lapse-rate sensitive |
+| `tmin_c` | °C | `tmin_c` | Lapse rate + valley cold-pooling |
+| `rh_max_pct` | % | `rh_max_pct` | Morning RH |
+| `rh_min_pct` | % | `rh_min_pct` | Afternoon RH |
+| `wind_kmph` | km/h | `wind_u`, `wind_v` | Speed derived from aggregated u/v |
+| `wind_dir_deg` | ° (from) | `wind_u`, `wind_v` | Meteorological convention |
+| `cloud_okta` | okta 0–8 | `cloud_okta` | Mostly interpolated |
+
+Definitions and valid ranges live in `src/panchayatcast/variables.py` (tied to the model contract, so kept in code).
 
 ---
 
 ## 3. Data sources
 
-| Dataset | Resolution | Period | Use | Access |
-|---|---|---|---|---|
-| **IMD block-level forecasts** | Block | Recent | Operational input; training pairs if an archive is provided | IMD / DAMU (via mentor) |
-| **IMD gridded rainfall** | 0.25° daily | 1901– | Coarse/fine rainfall, bias reference | IMD Pune; `imdlib` Python package |
-| **IMD gridded Tmax/Tmin** | 1.0° daily | 1951– | Coarse temperature reference | IMD Pune; `imdlib` |
-| **ERA5** | 0.25° hourly | 1940– | Coarse fields (all variables) | Copernicus CDS (`cdsapi`) |
-| **ERA5-Land** | 0.1° hourly | 1950– | Fine target for temp, RH (via dewpoint), wind | Copernicus CDS |
-| **CHIRPS v2** | 0.05° daily | 1981– | Fine rainfall target | UCSB CHC |
-| **GPM IMERG** | 0.1° | 2000– | Rainfall cross-check | NASA GES DISC |
-| **GFS** | 0.25° | Live | Emulated block forecasts for live demo | NOAA NOMADS |
-| **NCUM (NCMRWF)** | ~12 km | Live | Indian NWP alternative | NCMRWF (on request) |
-| **Station data** | Point | Varies | **Validation ground truth** | IMD AWS/ARG; KSNDMC (Karnataka); TSDPS (Telangana); others |
-| **SRTM / CartoDEM** | 30 m | Static | Elevation, slope, aspect, TPI | USGS / Bhuvan |
-| **ESA WorldCover** | 10 m | 2020/21 | Land-cover fractions | ESA |
-| **MODIS / Sentinel-2 NDVI** | 250 m / 10 m | 2000– | Vegetation state (monthly climatology) | NASA / Copernicus |
-| **Water bodies** | Vector/raster | Static | Distance to water | JRC Global Surface Water / OSM |
-| **Admin boundaries** | Polygons | Current | Blocks, GPs with **LGD codes** | LGD (codes) + Bhuvan / state GIS (polygons); confirm with mentor |
+| Dataset | Resolution | Period | Use | Access | In code |
+|---|---|---|---|---|---|
+| **IMD block-level forecasts** | Block | Recent | Operational input; training pairs if an archive is provided | IMD / DAMU (via mentor) | CSV upload |
+| **LGD Gram Panchayat polygons** | Polygons | 2024 | Real boundaries with LGD codes | india-geodata / bharatlas GeoParquet (CC0), range reads | `ingest/lgd.py` |
+| **ERA5-Land / ERA5 via Open-Meteo** | 0.1° / 0.25° daily | 1950– / 1940– | Tmax, Tmin, RH (ERA5-Land); wind, cloud (ERA5), no account | Open-Meteo archive API (CC BY 4.0) | `ingest/openmeteo_archive.py` |
+| **Live NWP forecast via Open-Meteo** | ~9–25 km | Today +7 d | Live block forecasts at block centroids (stand-in for the IMD feed) | Open-Meteo forecast API | `ingest/nwp.py` |
+| **ERA5-Land** | 0.1° hourly | 1950– | Fine target: Tmax/Tmin, RH (from dewpoint), wind | Copernicus CDS (free account) | `pcast download era5land` |
+| **ERA5** | 0.25° hourly | 1940– | Cloud cover | Copernicus CDS | `pcast download era5cloud` |
+| **CHIRPS v2** | 0.05° daily | 1981– | Fine rainfall target | UCSB CHC (public) | `pcast download chirps` |
+| **Copernicus DEM GLO-30** | 30 m (read at ~90 m) | Static | Elevation, slope, aspect, TPI | AWS open data (public COG) | `pcast download static` |
+| **ESA WorldCover 2021** | 10 m (read at ~90 m) | Static | Land-cover fractions | AWS open data (public COG) | `pcast download static` |
+| **Station data** | Point | Varies | **Validation ground truth** | IMD AWS/ARG; KSNDMC (Karnataka); TSDPS (Telangana) | CSV in config |
+| **Admin boundaries** | Polygons | Current | GPs with **LGD codes** (blocks derived) | LGD + Bhuvan / state GIS; confirm with mentor | config |
+| IMD gridded rain/temp | 0.25° / 1° | 1901– / 1951– | Cross-check | `imdlib` | planned |
+| GFS / NCUM | 0.25° / 12 km | Live | Emulated block forecasts from real NWP | NOAA / NCMRWF | planned |
+| NDVI, distance to coast | — | — | Extra features | MODIS / Sentinel-2 | planned |
 
-> Record the licence and citation of every dataset in `data/manifest.json`.
+### 3.1 Derived quantities (implemented in `ingest/download.py`)
+- Hourly UTC data is shifted to IST (+5:30) and aggregated per calendar day.
+- RH from 2 m temperature and dewpoint (Magnus formula); RH max/min are the daily max/min of hourly RH.
+- Tmax/Tmin: daily max/min of hourly 2 m temperature.
+- Wind: daily mean of 10 m u/v (converted to km/h).
+- Cloud: daily mean total cloud cover × 8 → okta.
 
-### 3.1 Derived quantities
-- RH from ERA5-Land: from 2 m temperature and 2 m dewpoint (Magnus formula). RH max ≈ max of hourly RH over the day; RH min ≈ min.
-- Tmax/Tmin: daily max/min of hourly 2 m temperature over the IST day.
-- Wind: daily mean of 10 m u/v → speed (km/h) and direction.
-- Rain: daily sum aligned to the 08:30 IST rain day.
+> **Limitation to state in the pitch:** with real data, the "fine" training truth is only as fine as ERA5-Land (~9 km) and CHIRPS (~5 km). Terrain/land-cover features are at ~1 km, and station observations are the point-scale check. Adding station data (or IMD high-resolution products) to training is a planned improvement.
 
 ---
 
-## 4. Preprocessing
+## 4. Preprocessing (implemented)
 
-1. **Region setup** (`configs/region.yaml`): state, district LGD, bounding box + 0.5° buffer.
-2. **Target grid:** 0.01° (~1.1 km) regular lat/lon grid over the region.
-3. **Regrid fine datasets** to the target grid: bilinear for continuous fields, conservative for rainfall.
-4. **Static layers** → target grid: elevation mean/std, slope, aspect (sin/cos), TPI (at 1 km and 5 km), land-cover fractions, distance to water, distance to coast, monthly NDVI climatology.
-5. **Emulated block inputs:** for each day, area-average the fine (or coarse) field over each block polygon → $y_b$. This mimics the operational block forecast.
-6. **Cell → GP weights:** compute $w_{i,p}$ with exact polygon/cell intersection (`exactextract`), in EPSG:7755.
-7. **Station QC:** remove duplicates, range checks, IMD QC flags, drop stations with < 70% completeness.
+1. **Region config** `configs/region.<id>.yaml`: bbox, grid resolution, date splits, languages, crop calendar, data paths. Templates: `region.demo.yaml` (synthetic), `region.example.yaml` (real).
+2. **Target grid:** 0.01° (~1.1 km) regular lat/lon grid, rows north → south (`grid.py`).
+3. **Boundaries:** GP polygons are read and fixed (`make_valid`); multi-row GPs are dissolved. Blocks = dissolve of GPs by `block_lgd`.
+4. **Weights:** exact cell × GP polygon intersection with GeoPandas `overlay` in EPSG:7755 (equal area) → `W_gp`, `W_block`, majority block per cell, IDW matrix (power 2, min distance 1 km).
+5. **Static layers** on the grid: elevation (area average of ~90 m DEM), slope, aspect sin/cos, dz/dx, dz/dy, TPI at ~3 km and ~15 km windows, land-cover fractions (crop/open vegetation, tree, built, water, bare), distance to water. Lat/lon are derived from the grid.
+6. **Fine daily fields** → grid by linear interpolation (nearest-neighbour fill at edges); only dates common to all variables are kept.
+7. **Emulated block inputs** (training): each day's fine field is area-averaged over each block → exactly what an official block forecast looks like.
+8. **Stations:** mapped to the nearest active grid cell.
+
+On-disk layout: `data/processed/<region>/` (see `store.py` docstring).
 
 ---
 
 ## 5. Models
 
-### 5.1 Model ladder
+### 5.1 Model ladder (all implemented)
 
 | ID | Name | Description | Role |
 |---|---|---|---|
-| **M0** | Copy | $\hat{y}_p = y_b$ (current practice) | Baseline to beat |
-| **M1** | Interpolation | IDW / bilinear from block centroids (smooth across borders) | Baseline 2 |
-| **M2** | Physics-adjusted | M1 + lapse-rate correction for temperature: $\hat T_i = T_{I,i} + \Gamma (\bar z_b - z_i)$, $\Gamma$ = 6.5 °C/km default, fitted per month | Cheap physics |
-| **M3** | **Residual GBM** (default) | LightGBM learns $f_v(\mathbf{x}_i,t) = y_i - I(y_b)_i$ | Main model |
-| **M4** | U-Net SR (stretch) | CNN maps coarse field + static channels → fine field | Showpiece |
+| **M0** | Copy | every cell takes its block's value (current practice) | Baseline to beat |
+| **M1** | Interpolation | IDW of block values from block centroids | Baseline 2 |
+| **M2** | + lapse rate | M1 + $\Gamma_m (z_{interp} - z_i)$ for Tmax/Tmin; $\Gamma_m$ fitted per calendar month by least squares, clipped to [0, 12] °C/km | Cheap physics |
+| **M3** | **Residual LightGBM** (default) | learns $y_i - I(y_b)_i$; quantile models for p10/p90 | Main model |
+| **M3S** | M3 + station correction | LightGBM on station residuals (Tmax, Tmin, RH), shrink chosen by leave-stations-out CV (§5.7) | For real data with coarse gridded truth |
+| **M4** | U-Net | CNN over the whole region grid (§5.6); optional, needs `torch` | Experimental; must beat M3 on validation |
 
-### 5.2 M3 features
+### 5.2 M3 features (`features/dataset.py::make_features`)
 
 | Group | Features |
 |---|---|
-| Coarse signal | block value $y_b$, interpolated value $I_i$, neighbour-block gradient (dx, dy), block std across neighbours |
-| Terrain | elevation, $z_i - \bar z_b$, slope, aspect sin/cos, TPI 1 km/5 km |
-| Surface | land-cover fractions (crop, tree, built, water, bare), distance to water, NDVI (monthly clim.) |
-| Location | lat, lon, distance to coast |
-| Season | day-of-year sin/cos, month |
-| Climatology | fine/coarse climatological ratio (rain) or difference (temp, RH) for the cell and month; **usually the strongest feature** |
+| Day's block values | `blk_<var>` for all 8 modelled variables (context: e.g. block rain and cloud help Tmin) |
+| Coarse signal | `interp`, `interp_minus_blk` |
+| Terrain | elevation, slope, aspect sin/cos, dz/dx, dz/dy, TPI small/large, `dz_block` (vs block mean elevation), `dz_interp` |
+| Orography × wind | `upslope` = block u·dz/dx + block v·dz/dy (windward lifting) |
+| Surface | land-cover fractions, distance to water |
+| Location / season | lat, lon, day-of-year sin/cos |
+| Climatology | per cell & month, from training years only: mean(fine − interp) for additive variables, (Σfine+1)/(Σinterp+1) for rain |
+| Rain only | log1p(block rain), log1p(interp) |
 
-### 5.3 Rainfall (special handling)
-Rain is zero-inflated and patchy, so we use:
-1. **Occurrence model:** LightGBM classifier $P(\text{rain}_i > 0.1\text{ mm})$.
-2. **Amount model:** LightGBM regressor on $\log(1 + \text{rain})$ for wet cells.
-3. Combine: $\hat r_i = \mathbb{1}[P_i > \tau] \cdot \exp(\hat a_i) - 1$, where $\tau$ is tuned on validation to maximise CSI.
-4. **Quantile mapping** to the fine climatology to fix distribution bias.
-5. If the block forecast is 0 mm, output 0 in strict mode, or allow light rain at low probability in soft mode (configurable).
+Training samples `train_rows` random (day, cell) pairs per variable (default 300k) from the train split; the validation split is used for early stopping and for tuning the rain threshold.
+
+### 5.3 Rainfall (implemented)
+1. **Occurrence:** LightGBM binary classifier, P(rain ≥ 0.1 mm), trained on cells of wet blocks only.
+2. **Amount:** LightGBM regressor on log1p(rain) for wet cells.
+3. **Combine:** rain = expm1(amount) if P ≥ τ else 0; τ tuned on validation to maximise CSI.
+4. **Dry block ⇒ 0 mm** everywhere in the block (strict mode).
+5. **Quantile mapping (auto-selected):** a mapping from predicted to observed wet-day amount quantiles is fitted on one half of the validation rows and kept only if, on the other half, it improves CSI at 15.6 and 64.5 mm without raising RMSE by more than 3%. The decision is recorded in the model metadata (`qm_used`).
 
 ### 5.4 Wind
-Model $u$ and $v$ separately (residual GBM), then compute $\text{speed} = \sqrt{u^2+v^2}$ and $\text{dir} = (270° - \operatorname{atan2}(v,u)) \bmod 360°$.
+u and v are modelled separately (residual GBM). Speed = √(u²+v²); direction (from) = atan2(−u, −v) mod 360°. Panchayat wind = speed/direction of the area-mean u/v.
 
-### 5.5 Post-processing
-- **Physical limits:** rain ≥ 0; RH ∈ [0, 100]; Tmax ≥ Tmin (swap/adjust if violated); cloud ∈ [0, 8].
-- **Block consistency** (configurable, default on). With area weights $W_p$ of GPs in block $b$:
-  - Additive (temperature, RH, wind u/v): $\hat y'_p = \hat y_p - (\sum_p W_p \hat y_p - y_b)$
-  - Multiplicative (rain): $\hat r'_p = \hat r_p \cdot y_b / \sum_p W_p \hat r_p$ (when the denominator is > 0)
-- **Uncertainty:** LightGBM quantile models (α = 0.1, 0.9) → p10/p90. Confidence: High if the (p90−p10) range is below the variable's threshold, Medium, or Low (thresholds in config).
+### 5.5 Post-processing (`downscale/postprocess.py`)
+1. **Block consistency** (default on; 3 iterations to handle cells that straddle block borders):
+   - Additive variables: shift every cell of block $b$ by $-(\text{mean}_b(\hat y) - y_b)$.
+   - Rain: if the block total is too high, scale down. If too low, scale up by at most `rain_max_scale` (3×) and spread the remaining deficit evenly over the block. This avoids piling a block's rain onto a few cells.
+2. **Physical limits:** clip to valid ranges; enforce Tmin < Tmax and RHmin < RHmax (then clip again).
+3. **Uncertainty:** p10/p90 from LightGBM quantile models (α = 0.1, 0.9), shifted/scaled with the value. Confidence per panchayat from the p90−p10 width: high / medium / low (thresholds per variable in `variables.py`).
 
-### 5.6 M4 U-Net (stretch)
-- Input channels: coarse field upsampled to 1 km, elevation, slope, land cover, climatology, DOY sin/cos.
-- Output: fine field (residual).
-- Loss: MSE (temperature/RH); weighted MSE + BCE on occurrence (rain).
-- Trained on ERA5 (coarsened) → ERA5-Land / CHIRPS patches of 64×64.
+### 5.6 M4 U-Net (`models/unet.py`, `pcast train-unet`)
+- The whole region grid is one image (padded to a multiple of 8). 35 input channels per day: interpolated block field and own-block value for each of the 8 variables (16), 16 static layers, day-of-year sin/cos, active-cell mask.
+- Output: 8 channels, the standardised residual (fine − interpolated) per variable; rain in log1p space.
+- Architecture: 3-level U-Net (32/64/128 channels, BatchNorm + GELU), AdamW + cosine schedule, masked MSE, best epoch by validation loss.
+- Memory-light: inputs are stored per active cell and assembled into images per batch.
+- Output goes through the same post-processing (block consistency, limits) as every other model.
 
----
-
-## 6. Database schema (PostGIS)
-
-```sql
-CREATE TABLE blocks (
-  block_lgd       INTEGER PRIMARY KEY,
-  name            TEXT NOT NULL,
-  district_lgd    INTEGER NOT NULL,
-  state_lgd       INTEGER NOT NULL,
-  geom            geometry(MultiPolygon, 4326) NOT NULL
-);
-
-CREATE TABLE panchayats (
-  gp_lgd          INTEGER PRIMARY KEY,
-  name            TEXT NOT NULL,
-  name_local      TEXT,
-  block_lgd       INTEGER NOT NULL REFERENCES blocks,
-  area_km2        REAL NOT NULL,
-  elev_mean_m     REAL,
-  geom            geometry(MultiPolygon, 4326) NOT NULL,
-  centroid        geometry(Point, 4326) NOT NULL
-);
-
-CREATE TABLE forecast_runs (
-  run_id          UUID PRIMARY KEY,
-  issue_date      DATE NOT NULL,
-  source          TEXT NOT NULL CHECK (source IN ('official','emulated_gfs','emulated_reanalysis','upload')),
-  model_version   TEXT NOT NULL,
-  status          TEXT NOT NULL CHECK (status IN ('queued','running','done','failed')),
-  created_at      TIMESTAMPTZ DEFAULT now(),
-  finished_at     TIMESTAMPTZ,
-  notes           TEXT
-);
-
-CREATE TABLE block_forecasts (
-  run_id          UUID REFERENCES forecast_runs,
-  block_lgd       INTEGER REFERENCES blocks,
-  valid_date      DATE,
-  lead_day        SMALLINT CHECK (lead_day BETWEEN 1 AND 5),
-  variable        TEXT,
-  value           REAL,
-  PRIMARY KEY (run_id, block_lgd, valid_date, variable)
-);
-
-CREATE TABLE panchayat_forecasts (
-  run_id          UUID REFERENCES forecast_runs,
-  gp_lgd          INTEGER REFERENCES panchayats,
-  valid_date      DATE,
-  lead_day        SMALLINT,
-  variable        TEXT,
-  value           REAL,
-  p10             REAL,
-  p90             REAL,
-  confidence      TEXT CHECK (confidence IN ('high','medium','low')),
-  model_id        TEXT,          -- M0..M4 actually used (fallback visible)
-  PRIMARY KEY (run_id, gp_lgd, valid_date, variable)
-);
-
-CREATE TABLE advisories (
-  advisory_id     UUID PRIMARY KEY,
-  run_id          UUID REFERENCES forecast_runs,
-  gp_lgd          INTEGER REFERENCES panchayats,
-  crop            TEXT,
-  crop_stage      TEXT,
-  valid_from      DATE,
-  valid_to        DATE,
-  rule_id         TEXT NOT NULL,
-  severity        TEXT CHECK (severity IN ('green','yellow','orange','red')),
-  text_en         TEXT NOT NULL,
-  text_local      JSONB,         -- {"hi": "...", "kn": "..."}
-  status          TEXT DEFAULT 'draft' CHECK (status IN ('draft','approved','rejected')),
-  edited_by       TEXT,
-  updated_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE stations (
-  station_id      TEXT PRIMARY KEY,
-  source          TEXT,
-  name            TEXT,
-  elev_m          REAL,
-  geom            geometry(Point, 4326)
-);
-
-CREATE TABLE observations (
-  station_id      TEXT REFERENCES stations,
-  obs_date        DATE,
-  variable        TEXT,
-  value           REAL,
-  qc_flag         SMALLINT DEFAULT 0,
-  PRIMARY KEY (station_id, obs_date, variable)
-);
-
-CREATE TABLE validation_metrics (
-  model_version   TEXT,
-  model_id        TEXT,
-  variable        TEXT,
-  lead_day        SMALLINT,
-  split           TEXT,          -- test / spatial_cv
-  metric          TEXT,          -- rmse, mae, bias, r, pod, far, csi, hss
-  value           REAL,
-  n               INTEGER,
-  PRIMARY KEY (model_version, model_id, variable, lead_day, split, metric)
-);
-
-CREATE INDEX ON panchayats USING GIST (geom);
-CREATE INDEX ON blocks USING GIST (geom);
-CREATE INDEX ON panchayat_forecasts (gp_lgd, valid_date);
-```
+### 5.7 M3S station correction (`models/station.py`)
+- For Tmax, Tmin, RH max and RH min: target = station observation − M3 prediction at the station's cell, over training-period days.
+- Features: M3's `make_features` (without climatology) + the M3 prediction itself. Small, strongly regularised LightGBM (15 leaves, min 200 rows per leaf).
+- **Leave-stations-out CV** (5 folds) picks a shrink factor per variable from {0, 0.25, 0.5, 0.75, 1}; 0 switches the correction off. Needs at least 8 stations.
+- Purpose: with real data the gridded training truth is coarse (~9–25 km); stations carry the point-scale signal.
 
 ---
 
-## 7. REST API (FastAPI)
+## 6. Storage
 
-Base: `/api/v1`
+**Database** (`storage/db.py`, SQLAlchemy Core): **SQLite** by default at `data/panchayatcast.db`; set `PCAST_DATABASE_URL` for PostgreSQL. Geometries stay in the region's GeoJSON files (not in the DB), so the schema is identical on both backends.
+
+| Table | Key columns |
+|---|---|
+| `forecast_runs` | run_id (PK), region_id, issue_date, source (`official`/`upload`/`emulated`), model_id, model_version, status (`queued`/`running`/`done`/`failed`), created_at, finished_at, notes |
+| `block_forecasts` | (run_id, block_lgd, valid_date, variable) PK, lead_day, value |
+| `panchayat_forecasts` | (run_id, gp_lgd, valid_date, variable) PK, lead_day, value, p10, p90, confidence, model_id |
+| `advisories` | advisory_id (PK), run_id, gp_lgd, block_lgd, crop, crop_stage, valid_from, valid_to, rule_id, category, severity, text_en, text_local (JSON: `{lang: {text, reviewed}}`), params (JSON), status (`draft`/`approved`/`rejected`), edited_by, updated_at |
+| `validation_metrics` | region_id, model_version, model_id, variable, level (`station`/`gp`), split, metric, threshold, value, n |
+
+No migrations yet: after a schema change, delete `data/panchayatcast.db` in development.
+
+**Files:**
+
+| Path | Content |
+|---|---|
+| `data/processed/<region>/` | region.json, blocks.geojson, panchayats.geojson, static.nc, fine/<var>.nc, weights.npz, stations.csv, observations.parquet |
+| `models/<region>/<version>/` | meta.json, m2.json (lapse rates), m3/<var>__<part>.txt (LightGBM), m3/clim.npz; `models/<region>/LATEST` |
+| `data/runs/<run_id>/grid.nc` | gridded forecast (valid_date, lat, lon) incl. p10/p90 |
+| `reports/<region>/<version>/` | metrics.csv, summary.md, skill_vs_copy.png, rain_csi.png |
+
+---
+
+## 7. REST API (FastAPI, `api/app.py`)
+
+Base: `/api/v1`. Interactive docs at `/docs`. Start with `pcast serve`.
+Write endpoints need header `X-API-Key` **if** env var `PCAST_API_KEY` is set. CORS origins: `PCAST_CORS_ORIGINS` (default `*`).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Liveness |
-| GET | `/regions/districts` | Available districts |
-| GET | `/blocks?district_lgd=` | Blocks (GeoJSON) |
-| GET | `/panchayats?block_lgd=&district_lgd=` | GPs (GeoJSON, simplified geometry) |
-| GET | `/panchayats/search?q=` | Name search (English + local) |
-| POST | `/runs` | Upload block forecast (CSV/JSON) → creates run (auth) |
-| GET | `/runs` / `/runs/{run_id}` | Run list / status |
-| GET | `/map?run_id=&variable=&valid_date=&level=gp\|block` | GeoJSON FeatureCollection with values |
-| GET | `/panchayats/{gp_lgd}/forecast?run_id=` | 5-day forecast, all variables, with p10/p90/confidence and block values |
-| GET | `/panchayats/{gp_lgd}/advisories?run_id=&crop=&lang=` | Advisories for a GP |
-| GET | `/advisories?run_id=&block_lgd=&severity=` | Advisory list (dashboard) |
-| PATCH | `/advisories/{id}` | Edit text / approve / reject (auth) |
-| GET | `/validation/metrics?variable=&lead_day=` | Metrics table |
-| GET | `/exports/{run_id}.{csv\|geojson\|pdf}` | Downloads |
-| GET | `/rasters/{run_id}/{variable}/{valid_date}.tif` | COG GeoTIFF |
+| GET | `/health` | Liveness + version |
+| GET | `/variables` | Variable labels/units + IMD rain categories |
+| GET | `/regions` | Built regions, model version, latest run id |
+| GET | `/regions/{region_id}` | Region metadata, grid, available models |
+| GET | `/regions/{region_id}/blocks` | Block polygons (GeoJSON, simplified) |
+| GET | `/regions/{region_id}/panchayats?block_lgd=` | GP polygons (GeoJSON, simplified) |
+| GET | `/regions/{region_id}/panchayats/search?q=` | Name search |
+| GET | `/regions/{region_id}/panchayats/locate?lat=&lon=` | GP containing a point (farmer GPS), else nearest within 10 km |
+| GET | `/regions/{region_id}/validation?model_version=` | Metrics (all splits: test, forecast by lead day, spatial_cv, station_cv) + skill summary |
+| GET | `/regions/{region_id}/runs` · `/runs/latest` | Run list (with advisory counts) / latest completed run |
+| POST | `/regions/{region_id}/runs` | Upload block forecast CSV (multipart `file`, optional `model_id`) → 202 + run_id; 422 with an error list if invalid |
+| POST | `/regions/{region_id}/runs/emulate?issue_date=` | Demo: create a run from an emulated block forecast |
+| POST | `/regions/{region_id}/runs/fetch?nwp_model=` | Live: today's NWP forecast (Open-Meteo) at block centroids → downscaled run (`source=nwp`) |
+| GET | `/runs/{run_id}` | Run status + advisory counts by severity |
+| GET | `/runs/{run_id}/map?variable=&valid_date=&level=gp\|block` | GeoJSON with value, p10, p90, confidence, block_value, diff_from_block + min/max |
+| GET | `/runs/{run_id}/panchayats/{gp_lgd}/forecast` | 5-day forecast, all variables, with block values |
+| GET | `/runs/{run_id}/panchayats/{gp_lgd}/advisories?crop=&lang=` | Advisories for one GP |
+| GET | `/runs/{run_id}/advisories?block_lgd=&gp_lgd=&severity=&crop=&status=&lang=` | Advisory list |
+| PATCH | `/advisories/{advisory_id}` | Edit `text_en` / set `status` / `edited_by` |
+| GET | `/runs/{run_id}/compare?block_lgd=` | Per block/day/variable: block value vs GP min/max/std/range |
+| GET | `/runs/{run_id}/export.csv` · `/export.geojson` | Downloads |
+| GET | `/runs/{run_id}/bulletin.pdf?lang=en\|hi\|kn&block_lgd=` | PDF bulletin in English, Hindi or Kannada |
+| GET | `/runs/{run_id}/sms.csv?lang=` | One SMS per panchayat (day-1 forecast + top advisory, segment count) for bulk gateways |
+| GET | `/runs/{run_id}/raster/{variable}/{valid_date}.tif` | Gridded GeoTIFF |
+| GET | `/` | The web dashboard (served from `web/dist` when built) |
 
-`run_id` defaults to the latest successful run when omitted.
-
-**Example:** `GET /api/v1/panchayats/123456/forecast`
+**Example:** `GET /api/v1/runs/{run_id}/panchayats/99000001/forecast`
 ```json
 {
-  "gp_lgd": 123456,
-  "name": "Hebballi",
-  "block_lgd": 5678,
-  "run": {"run_id": "…", "issue_date": "2026-09-29", "source": "official", "model_version": "m3-2026.10.01"},
+  "gp_lgd": 99000001, "gp_name": "Demo GP G-01", "block_lgd": 990007, "block_name": "Demo Block G",
+  "run": {"run_id": "…", "issue_date": "2024-07-10", "source": "emulated", "model_id": "M3", "status": "done"},
   "days": [
-    {
-      "valid_date": "2026-09-30",
-      "lead_day": 1,
-      "rain_mm":  {"value": 18.2, "p10": 6.0, "p90": 31.5, "block": 11.0, "confidence": "medium"},
-      "tmax_c":   {"value": 30.8, "p10": 29.9, "p90": 31.6, "block": 31.9, "confidence": "high"}
-    }
+    {"valid_date": "2024-07-11", "lead_day": 1,
+     "rain_mm": {"value": 18.2, "p10": 6.0, "p90": 31.5, "confidence": "medium", "block": 11.0},
+     "tmax_c":  {"value": 25.0, "p10": 24.6, "p90": 25.5, "confidence": "high", "block": 25.1}}
   ]
 }
 ```
 
+Advisory JSON includes `text` (in the requested `lang`, English fallback), `machine_translated` (true until a translation file is marked reviewed) and `translations` (available languages).
+
 ---
 
-## 8. Advisory engine
+## 8. Advisory engine (`advisory/`)
 
 ### 8.1 Inputs
-- Panchayat forecast (5 days)
-- Crop calendar per district: crop → sowing window → stage by date (`configs/crop_calendar/{district}.yaml`)
-- Rules (`configs/advisory_rules.yaml`)
+- Panchayat forecast (5 days, all variables)
+- Crop calendar: crop → sowing date → stage durations (`configs/crop_calendar/<district>.yaml`). A crop is included if it is in the field at any point in the forecast window.
+- Rules: `configs/advisory_rules.yaml` (13 illustrative rules, to be reviewed with the DAMU/KVK)
+- Translations: `configs/i18n/advisories.<lang>.yaml` (Hindi and Kannada provided, `reviewed: false`)
 
 ### 8.2 IMD rainfall categories (24 h)
 | Category | mm |
@@ -300,113 +248,153 @@ Base: `/api/v1`
 | Very heavy | 115.6 – 204.4 |
 | Extremely heavy | ≥ 204.5 |
 
-### 8.3 Rule format (example)
+### 8.3 Rule format
 ```yaml
-- id: RAIN_SPRAY_POSTPONE
-  when: "rain_mm[d1] > 10 or rain_mm[d2] > 10"
-  crops: ["*"]
-  stages: ["*"]
+- id: HEAT_STRESS_FLOWERING
+  category: temperature
+  crops: [paddy, maize, cotton, soybean, groundnut, chickpea, sorghum]
+  stages: [flowering]
+  when: "max(tmax_c[d1:d3]) >= 36"
   severity: orange
-  text_en: "Rain expected ({rain_mm_max} mm). Postpone pesticide/fertiliser spraying until {dry_day}."
-
-- id: HEAT_FLOWERING
-  when: "max(tmax_c[d1:d3]) >= 38"
-  crops: ["paddy", "cotton", "soybean"]
-  stages: ["flowering"]
-  severity: red
-  text_en: "High temperature ({tmax_max}°C) during flowering. Apply light irrigation in the evening."
-
-- id: FUNGAL_RISK
-  when: "mean(rh_max_pct[d1:d3]) > 85 and mean(tmax_c[d1:d3]) between 22 and 30"
-  crops: ["paddy", "tomato", "groundnut"]
-  stages: ["vegetative", "flowering"]
-  severity: yellow
-  text_en: "Humid, warm weather favours fungal disease. Monitor crops and consider preventive spray on a dry day."
-
-- id: IRRIGATION_SKIP
-  when: "sum(rain_mm[d1:d3]) >= 25"
-  crops: ["*"]
-  stages: ["*"]
-  severity: green
-  text_en: "Sufficient rain expected ({rain_sum} mm in 3 days). Skip irrigation."
+  window: [d1, d3]
+  params:
+    tmax: "max(tmax_c[d1:d3])"
+    day: "date_of_max(tmax_c, d1, d3)"
+  text_en: "High temperature ({tmax:.0f}°C) on {day} during the flowering stage of {crop}. Apply light irrigation in the evening to reduce heat stress."
 ```
-- Rules are evaluated safely (a small expression parser, **no `eval`**).
-- Final rules must be reviewed against official agromet advisory guidance / the mentor's inputs.
+- **Expression language** (safe AST evaluator, **no `eval`**): variables, `d1..d5`, inclusive slices (`d1:d3` = 3 days), chained comparisons (`22 <= mean(tmax_c[d1:d3]) <= 32`), `and/or/not`, `in`, and the functions `max min mean sum any all count abs date_of_max first_date_below first_date_above`. Attribute access, lambdas, comprehensions and other functions are rejected when the rule file loads.
+- **Templates:** `{name}` / `{name:.0f}` from `params`; `{crop}` and `{stage}` are built in (translated per language). Attribute/index placeholders are rejected.
+- Crop-agnostic rules omit `crops`; stage filters require a crop list.
+- Each advisory stores its `params`, so the PDF bulletin can merge many panchayats into one line with value ranges (e.g. "Rain of up to 18-54 mm…").
 
 ### 8.4 Translation
-- Templates are pre-translated per language where possible (reliable).
-- The free-text parts can be machine-translated (LLM/MT) and are marked "machine translated" until a human reviews them.
+- Hindi and Kannada templates are written by hand and flagged `reviewed: false` (shown as "unreviewed translation") until a native speaker/agromet expert checks them.
+- Dates inside regional text are localised ("30 Sep" → "30 ಸೆಪ್ಟೆಂಬರ್").
+- PDF bulletins render in English, Hindi and Kannada with bundled Noto fonts (SIL OFL, `src/panchayatcast/assets/fonts/`) and HarfBuzz shaping (`uharfbuzz`), so conjuncts and vowel signs are correct.
+- SMS export: one message per panchayat (day-1 forecast + most severe advisory) with a segment count (GSM-7 for English, Unicode for Hindi/Kannada).
 
 ---
 
-## 9. Repository layout (planned)
+## 9. Repository layout (actual)
 
 ```
 .
 ├── README.md
-├── docs/
-│   └── CLAUDE.md  BRAIN.md  PRD.md  DESIGN.md  SYSTEM_ARCHITECTURE.md  TECHNICAL.md
+├── pyproject.toml            # package + deps + ruff/pytest config; CLI entry point `pcast`
+├── docs/                     # BRAIN, CLAUDE, PRD, DESIGN, SYSTEM_ARCHITECTURE, TECHNICAL
+├── Dockerfile  docker-compose.yml  .dockerignore
 ├── configs/
-│   ├── region.yaml
-│   ├── variables.yaml
-│   ├── models.yaml
+│   ├── region.demo.yaml      # synthetic demo region
+│   ├── region.dharwad.yaml   # REAL pilot: Dharwad district, Karnataka
+│   ├── region.example.yaml   # template for another real district
+│   ├── models.yaml           # training + post-processing settings
 │   ├── advisory_rules.yaml
-│   └── crop_calendar/
-├── data/                     # git-ignored
-│   ├── raw/  interim/  processed/  static/
-│   └── manifest.json
-├── models/                   # git-ignored (trained artifacts)
+│   ├── crop_calendar/demo.yaml
+│   └── i18n/advisories.{hi,kn}.yaml
 ├── src/panchayatcast/
-│   ├── ingest/               # downloaders, loaders, validators
-│   ├── preprocess/           # regrid, block means, weights
-│   ├── features/             # static + climatology features
-│   ├── models/               # m0..m4, training
-│   ├── downscale/            # engine, postprocess, aggregate
-│   ├── validate/             # metrics, reports
-│   ├── advisory/             # rules, crop calendar, translate
-│   ├── db/                   # SQLAlchemy models, migrations
-│   └── api/                  # FastAPI app
-├── web/                      # React + TS + Vite
-├── notebooks/                # exploration only
-├── tests/
-├── docker-compose.yml
-├── pyproject.toml
-└── Makefile
+│   ├── config.py  variables.py  grid.py  geometry.py  store.py  pipeline.py  cli.py
+│   ├── ingest/               # synthetic, real, download (DEM/WorldCover/CHIRPS/ERA5), lgd (boundaries),
+│   │                         # openmeteo_archive (ERA5-Land/ERA5), nwp (live forecast), block_forecast
+│   ├── features/             # static.py (terrain), dataset.py (context, features, climatology)
+│   ├── models/               # baselines (M0-M2), gbm (M3), station (M3S), unet (M4), registry, train
+│   ├── downscale/            # engine.py, postprocess.py, aggregate.py
+│   ├── validate/             # metrics.py, evaluate.py (4 modes), report.py
+│   ├── advisory/             # expr.py, rules.py, crops.py, engine.py
+│   ├── storage/db.py         # SQLAlchemy tables + Repository
+│   ├── exports/              # tabular (CSV/GeoJSON), raster (GeoTIFF), bulletin (PDF en/hi/kn), sms
+│   ├── assets/fonts/         # Noto fonts for Indic PDFs (OFL)
+│   └── api/app.py            # FastAPI (+ serves web/dist)
+├── web/                      # React + TypeScript + Vite + MapLibre dashboard and farmer view
+├── tests/                    # unit + end-to-end tests on a tiny synthetic region
+└── data/  models/  reports/  # generated, git-ignored
 ```
 
 ---
 
 ## 10. Validation protocol
 
-- **Splits (example):** train 2010–2020, validation 2021–2022, test 2023–2025. Adjust to data availability.
-- **Spatial CV:** k-fold leave-stations-out (grouped by station clusters, ≥ 10 km apart) to test ungauged panchayats.
-- **Truth sources:** (a) stations, which are the most credible; (b) fine gridded data for full spatial coverage.
-- **Continuous metrics:** RMSE, MAE, bias, Pearson r, and skill vs. M0/M1.
-- **Rainfall categorical:** POD, FAR, CSI, HSS at thresholds 2.5, 15.6, 64.5 mm.
-- **Forecast-mode test:** if real block forecast archives exist, evaluate the full chain (official block forecast → our GP forecast → observed). Otherwise use GFS hindcasts as the emulated block forecast.
-- **Report:** auto-generated HTML/PDF with tables and charts in `reports/`.
+All implemented in `validate/evaluate.py`; run with `pcast evaluate <region>` (all four) or `--mode`.
+
+| Evaluation (`split`) | What it answers | How |
+|---|---|---|
+| `test` | How much does downscaling add? | Held-out year; block inputs are the true block means (isolates downscaling error) |
+| `forecast` | Does it still help with an imperfect forecast? | Held-out year; block inputs get realistic error growing with lead day 1–5 (same error model as emulated runs); scored per lead day |
+| `spatial_cv` | Does it work where it has never been trained? | Blocks split into folds; M3 retrained without each fold's cells **and without climatology**; scored only on held-out panchayats/stations |
+| `station_cv` | Does the station correction really help? | M3S fitted without a fold of stations, scored on those stations in the test year |
+
+- **Truths:** station observations (at the station's grid cell) and panchayat area-means of the fine field.
+- **Metrics:** RMSE, MAE, bias, Pearson r; skill vs a reference = 1 − RMSE/RMSE_ref; rain POD, FAR, CSI, HSS at 2.5, 15.6, 64.5 mm; wind-direction angular MAE.
+- **Splits:** temporal train / val / test from the region config (no shuffling across time).
+- **Report:** `reports/<region>/<version>/summary.md` with charts (skill by variable, rain CSI, skill by lead day); metrics are stored in the DB (`lead_day` column for forecast mode) and shown on the dashboard's Validation page.
+- **Still open:** full-chain test with real IMD block-forecast archives (needs IMD data).
 
 ---
 
-## 11. Performance notes
-- The 1 km grid for a district is about 5k–10k cells, so inference takes milliseconds per variable and day.
-- National: ~3.3 M cells × 8 variables × 5 days. LightGBM batch inference takes minutes on a multi-core CPU.
-- Zonal weights are precomputed once, so aggregation is a sparse matrix multiply: $\hat{\mathbf{y}}_{GP} = W \hat{\mathbf{y}}_{grid}$.
+## 11. Performance (measured on a laptop CPU)
+- Synthetic demo (1,907 cells, 140 GPs, 7 years): generation ~15 s, full training ~2 min (8 variables × 4 LightGBM models, 300k rows each), evaluation of 4 models on 366 days ~20 s, one 5-day forecast run ~3 s.
+- National scale (~3.3 M cells): aggregation is a sparse matrix multiply; LightGBM inference is batch and parallel per district.
 
 ---
 
-## 12. Key libraries
+## 12. Key libraries (in use)
 
 | Purpose | Library |
 |---|---|
-| Arrays / rasters | numpy, xarray, rioxarray, rasterio, zarr, netCDF4 |
-| Vector | geopandas, shapely, pyproj |
-| Zonal stats | exactextract (or rasterstats) |
-| Regridding | xESMF (optional), xarray interp |
-| Data access | cdsapi, imdlib, requests |
-| ML | scikit-learn, lightgbm, torch (stretch) |
-| API | fastapi, pydantic, sqlalchemy, geoalchemy2, uvicorn |
-| Jobs | apscheduler (simple) or celery + redis |
-| Reports / PDF | matplotlib, jinja2, weasyprint |
-| Frontend | react, typescript, vite, maplibre-gl, recharts, i18next |
-| Quality | ruff, pytest, mypy (optional) |
+| Arrays / rasters | numpy, xarray, netCDF4, rasterio |
+| Vector | geopandas, shapely, pyproj, pyogrio |
+| ML | lightgbm, scikit-learn, scipy; optional `torch` (M4) |
+| API | fastapi, pydantic, sqlalchemy, uvicorn, python-multipart; optional `psycopg` (PostgreSQL) |
+| Reports / exports | matplotlib, fpdf2 + uharfbuzz (Indic shaping), pyarrow |
+| CLI / config | typer, pyyaml |
+| Data access | requests, pyarrow (remote GeoParquet); optional `cdsapi` (ERA5), `imdlib` (IMD) |
+| Frontend | React 19, TypeScript, Vite, MapLibre GL 6, Recharts |
+| Quality | ruff, pytest, httpx, tsc |
+
+---
+
+## 13. Synthetic demo region
+
+`configs/region.demo.yaml` → `pcast synth` generates a complete, clearly-labelled **synthetic** district (0.6° × 0.6°, 1 km grid, 7 blocks, 140 GPs, 30 stations, 2018–2024 daily weather). Its weather contains known local effects: lapse rate, valley cold-pooling on clear nights, lake/river cooling and humidity, urban warmth, south-facing slope warmth, windward orographic rain, and ridge wind speed-up. Annual rainfall is ~700–900 mm, mostly June–September.
+
+Purpose: run and test the full pipeline before real data arrives, and show that the model recovers local structure. **Scores on it are not real-world skill.** Everything generated is tagged `data_source: synthetic`, and the PDF bulletin prints a DEMO warning.
+
+---
+
+## 14. Implementation status
+
+| Area | Status |
+|---|---|
+| Synthetic region, grid, weights, static features | ✅ Done, tested |
+| Real-region builder (boundaries, DEM, WorldCover, NetCDF fields, stations) | ✅ Done; used for the Dharwad pilot |
+| Real LGD panchayat boundaries (remote GeoParquet, range reads) | ✅ Done (Dharwad: 145 GPs, 8 blocks) |
+| Downloaders: DEM, WorldCover, CHIRPS (COG windows, parallel), ERA5-Land/ERA5 via Open-Meteo | ✅ Used for the pilot |
+| Downloader: ERA5-Land via Copernicus CDS | ⚠️ Written, untested (needs a CDS account); Open-Meteo path used instead |
+| M0, M1, M2, M3 (+ auto rain QM), M3S, registry | ✅ Done, tested |
+| M4 U-Net | ✅ Done (optional, needs torch) |
+| Block consistency, limits, uncertainty/confidence | ✅ Done, tested |
+| Block forecast CSV validation | ✅ Done, tested |
+| Live NWP forecast (Open-Meteo) + `pcast fetch` / `pcast watch` | ✅ Done, tested (mocked in tests, live-checked manually) |
+| Advisory engine (rules, crop calendar, hi/kn templates, localised dates) | ✅ Done, tested; rules/translations need expert review |
+| Validation: test, forecast mode, spatial CV, station CV + report | ✅ Done, tested |
+| SQLite storage; CSV/GeoJSON/GeoTIFF/PDF (en/hi/kn)/SMS exports | ✅ Done, tested |
+| REST API | ✅ Done, tested |
+| Frontend: map, compare, advisories, validation, runs, farmer view (en/hi/kn) | ✅ Done, checked in the browser |
+| Docker + PostgreSQL | ⚠️ Dockerfile/compose written, **untested** (no Docker on the dev machine) |
+| Real IMD block-forecast archive, station data, NDVI feature | ⏳ Needs data access |
+
+---
+
+## 15. Frontend (`web/`)
+
+React 19 + TypeScript + Vite, MapLibre GL 6 (OSM raster basemap, muted), Recharts. Built into `web/dist`, which `pcast serve` serves at `/`.
+
+| Page | Route | What it shows |
+|---|---|---|
+| Forecast map | `#/` | Panchayat choropleth for any variable and day; Panchayat / Block / Difference views; hover tooltip (value, block value, difference, likely range, confidence); click → detail panel with 5-day cards, temperature and rain charts (with block values and p10–p90 band), panchayat-vs-block table and advisories (en/hi/kn); spread-inside-block card; alert list |
+| Compare | `#/compare` | Swipe divider between block and panchayat maps (shared colour scale, synced pan/zoom) + per-block spread table |
+| Advisories | `#/advisories` | Filter by block/crop/severity/status/text; approve, reject, edit; bulk approve; PDF bulletin (en/hi/kn) and SMS CSV |
+| Validation | `#/validation` | All four evaluations; stations vs panchayat means; skill tiles, charts, RMSE and rain-event tables; synthetic-data warning |
+| Runs | `#/runs` | Upload a block forecast CSV (with validation errors), emulated demo run, live NWP fetch; run list with downloads |
+| Farmer view | `#/farmer/<gp>` | Mobile-first, English/Hindi/Kannada; find panchayat by search or GPS; today's forecast, "what to do" advisories by crop, read-aloud (browser speech), next 4 days |
+
+Development: `npm run dev` in `web/` (proxies `/api` to `pcast serve` on :8000). Note: MapLibre 6's worker is bundled via `?worker&url` + `setWorkerUrl`. On this machine `web/node_modules` is a junction to `%USERPROFILE%\.cache\panchayatcast-web\node_modules` (outside OneDrive).

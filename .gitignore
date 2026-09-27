@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data, models, outputs (never commit)
+data/
+models/
+reports/
+outputs/
+*.nc
+*.tif
+*.tiff
+*.parquet
+*.sqlite
+*.db
+
+# Secrets
+.env
+.cdsapirc
+
+# Node (frontend, later)
+node_modules/
+web/dist/
+
+# Machine-specific tool config (e.g. the local venv path for the preview server)
+.claude/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

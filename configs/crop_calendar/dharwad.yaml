@@ -1,0 +1,89 @@
+# INDICATIVE crop calendar for Dharwad district (northern transition zone, Karnataka).
+# Typical rainfed kharif sowing starts with monsoon onset in June; rabi crops follow in
+# September-November. Dates and durations are approximate starting points and MUST be
+# checked against the district's package of practices (UAS Dharwad / KVK / DAMU).
+
+district: Dharwad
+
+crops:
+  soybean:
+    label: Soybean
+    season: kharif
+    sowing: "06-10"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 35}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 25}
+  greengram:
+    label: Green gram
+    season: kharif
+    sowing: "06-05"
+    stages:
+      - {stage: sowing, days: 10}
+      - {stage: vegetative, days: 25}
+      - {stage: flowering, days: 20}
+      - {stage: maturity, days: 15}
+  maize:
+    label: Maize
+    season: kharif
+    sowing: "06-10"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 45}
+      - {stage: flowering, days: 25}
+      - {stage: maturity, days: 30}
+  cotton:
+    label: Cotton
+    season: kharif
+    sowing: "06-15"
+    stages:
+      - {stage: sowing, days: 20}
+      - {stage: vegetative, days: 60}
+      - {stage: flowering, days: 60}
+      - {stage: maturity, days: 50}
+  groundnut:
+    label: Groundnut
+    season: kharif
+    sowing: "06-20"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 40}
+      - {stage: flowering, days: 35}
+      - {stage: maturity, days: 25}
+  paddy:
+    label: Paddy
+    season: kharif
+    sowing: "06-15"
+    stages:
+      - {stage: sowing, days: 20}
+      - {stage: vegetative, days: 50}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}
+  sorghum:
+    label: Rabi sorghum
+    season: rabi
+    sowing: "09-25"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 40}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}
+  chickpea:
+    label: Chickpea
+    season: rabi
+    sowing: "10-15"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 35}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}
+  wheat:
+    label: Wheat
+    season: rabi
+    sowing: "11-05"
+    stages:
+      - {stage: sowing, days: 15}
+      - {stage: vegetative, days: 45}
+      - {stage: flowering, days: 30}
+      - {stage: maturity, days: 30}

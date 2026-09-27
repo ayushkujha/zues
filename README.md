@@ -45,18 +45,65 @@ Block forecast ──► Downscaling engine ──► Panchayat forecast ──�
 
 ---
 
-## Tech stack (planned)
+## Quick start
+
+Requires Python 3.11+. On Windows, keep the virtual environment **outside OneDrive** (OneDrive locks its files).
+
+```bash
+python -m venv %USERPROFILE%\.venvs\panchayatcast
+%USERPROFILE%\.venvs\panchayatcast\Scripts\activate
+pip install -e ".[dev]"
+cd web && npm install && npm run build && cd ..   # build the dashboard (Node 20+)
+
+pcast demo      # synthetic demo district -> train -> 4 validations -> forecast run (~15 min)
+pcast serve     # dashboard at http://127.0.0.1:8000  ·  API docs at /docs
+pytest -q       # tests
+```
+
+Other useful commands:
+
+```bash
+pcast fetch demo                          # today's live NWP forecast -> panchayat forecast
+pcast pilot configs/region.dharwad.yaml   # REAL district: download open data + build (~2 h, resumable)
+pcast train dharwad && pcast evaluate dharwad
+pcast train-unet demo                     # optional deep-learning model (pip install torch)
+```
+
+> The **demo** district is synthetic (generated terrain, boundaries and weather): it proves the pipeline end to end, and its scores are **not** real-world skill. The **Dharwad pilot** uses real LGD panchayat boundaries, real terrain and land cover, and real reanalysis/satellite weather (see [docs/TECHNICAL.md §16](docs/TECHNICAL.md)).
+
+## What you get
+
+- **Dashboard:** panchayat forecast map for every variable and day, block-vs-panchayat compare slider, panchayat detail with charts and uncertainty, advisory review (approve/edit), validation results, forecast upload / live fetch.
+- **Farmer view:** phone-friendly page in English, Hindi or Kannada: find your panchayat by name or GPS, today's forecast, what to do, read-aloud.
+- **Exports:** CSV, GeoJSON, GeoTIFF, PDF bulletins (English/Hindi/Kannada), bulk-SMS list.
+- **Validation:** held-out year, forecast mode by lead day, spatial cross-validation (unseen places), station cross-validation.
+
+## How it works
+
+| Model | What it does |
+|---|---|
+| M0 | Copy the block value to every panchayat (current practice, the baseline to beat) |
+| M1 | Smooth interpolation between block values |
+| M2 | M1 + temperature correction for elevation (lapse rate) |
+| **M3** | **LightGBM** learns each location's difference from the block signal from terrain, land cover, water, season and climatology (default) |
+| M3S | M3 + a correction learned from weather stations (switched on only where cross-validation shows it helps) |
+| M4 | U-Net deep-learning model over the whole grid (optional, experimental) |
+
+The output is **block-consistent**: the area-weighted average over a block's panchayats equals the official block forecast. Each value has a p10–p90 range and a confidence level.
+
+## Tech stack
 
 | Layer | Tools |
 |---|---|
-| Data & ML | Python, xarray, rioxarray, geopandas, scikit-learn, LightGBM, PyTorch |
-| Backend | FastAPI, PostgreSQL + PostGIS |
-| Frontend | React, TypeScript, Vite, MapLibre GL |
-| Deployment | Docker Compose |
+| Data & ML | Python, numpy, xarray, rasterio, geopandas, LightGBM, PyTorch (optional) |
+| Backend | FastAPI, SQLAlchemy (SQLite by default, PostgreSQL supported) |
+| Frontend | React, TypeScript, Vite, MapLibre GL, Recharts |
+| Exports | CSV, GeoJSON, GeoTIFF, PDF (fpdf2 + Noto fonts + HarfBuzz), charts (matplotlib) |
+| Deployment | `pcast serve` on one machine; Dockerfile + docker-compose (PostgreSQL) provided |
 
 ## Data sources
 
-IMD block forecasts and gridded data · ERA5 / ERA5-Land · CHIRPS · GFS · IMD and state AWS stations · SRTM / CartoDEM · ESA WorldCover · LGD panchayat boundaries. See [docs/TECHNICAL.md §3](docs/TECHNICAL.md).
+IMD block forecasts (CSV upload) · LGD Gram Panchayat boundaries · Copernicus DEM · ESA WorldCover · CHIRPS rainfall · ERA5-Land / ERA5 (via Open-Meteo or Copernicus CDS) · live NWP forecasts (Open-Meteo) · IMD and state AWS stations (when available). See [docs/TECHNICAL.md §3](docs/TECHNICAL.md).
 
 ---
 
@@ -65,16 +112,22 @@ IMD block forecasts and gridded data · ERA5 / ERA5-Land · CHIRPS · GFS · IMD
 ```
 .
 ├── README.md
-├── docs/                 # all project documentation
-├── configs/              # region, variables, models, advisory rules (planned)
-├── data/                 # datasets, git-ignored (planned)
-├── src/panchayatcast/    # pipeline, models, API (planned)
-└── web/                  # dashboard (planned)
+├── pyproject.toml  Dockerfile  docker-compose.yml
+├── docs/                 # all project documentation (incl. DEMO_SCRIPT.md for the pitch)
+├── configs/              # region configs (demo, dharwad, example), models, advisory rules, crop calendar, translations
+├── src/panchayatcast/    # ingest, features, models, downscale, validate, advisory, storage, exports, api, cli
+├── web/                  # dashboard + farmer view (React)
+├── tests/                # unit + end-to-end tests
+└── data/ models/ reports/  # generated, git-ignored
 ```
 
 ## Status
 
-**Phase 0: Documentation complete.** Implementation has not started yet.
+- ✅ Backend, models M0–M4, four validation modes, advisories (en/hi/kn), exports incl. Indic PDFs and SMS, REST API, CLI.
+- ✅ Dashboard and farmer view.
+- ✅ Real-data pilot for Dharwad district (real boundaries, terrain, satellite/reanalysis weather).
+- ⏳ Needs data access: official IMD block-forecast archive and station observations; expert review of advisory rules and translations.
+- Details: [docs/TECHNICAL.md §14](docs/TECHNICAL.md).
 
 ## Team
 
