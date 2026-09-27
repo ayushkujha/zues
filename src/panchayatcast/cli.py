@@ -101,6 +101,9 @@ def _evaluate_all(region: str, version: str | None, modes: list[str]) -> Path:
     from .validate import evaluate as ev
     from .validate.report import write_report
 
+    from .storage.db import Repository
+
+    version = version or latest_version(region)
     frames = {}
     if "test" in modes:
         frames["test"] = ev.evaluate_region(region, version=version)
@@ -110,7 +113,13 @@ def _evaluate_all(region: str, version: str | None, modes: list[str]) -> Path:
         frames["spatial_cv"] = ev.evaluate_spatial_cv(region, version=version)
     if "station" in modes:
         frames["station_cv"] = ev.evaluate_station_cv(region, version=version)
-    return write_report(region, version or latest_version(region), frames, RegionStore(region).meta)
+    # Keep earlier results for evaluations not re-run now, so the report stays complete.
+    stored = Repository().metrics(region, version)
+    if not stored.empty:
+        for split, df in stored.groupby("split"):
+            frames.setdefault(split, df.drop(columns=["id", "created_at", "region_id", "model_version",
+                                                     "split"], errors="ignore").reset_index(drop=True))
+    return write_report(region, version, frames, RegionStore(region).meta)
 
 
 @app.command("train-unet")

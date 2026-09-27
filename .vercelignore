@@ -1,0 +1,13 @@
+# Vercel hosts only the static frontend (web/). Keep the backend, data and models out of the upload.
+data/
+models/
+reports/
+outputs/
+src/
+tests/
+configs/
+docs/
+Dockerfile
+docker-compose.yml
+web/node_modules/
+web/dist/
