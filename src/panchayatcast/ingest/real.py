@@ -90,6 +90,15 @@ def _regrid_daily(path, grid: Grid, var: str, start: str, end: str) -> xr.DataAr
     out = out.fillna(near)
     out = out.sortby("lat", ascending=False)  # north -> south, like the grid
     out["time"] = pd.DatetimeIndex(out["time"].values).normalize()
+    # Source grids downloaded only near the region leave a rim of target cells that no
+    # source point reaches; give those the value of the nearest filled cell.
+    arr = out.values
+    rim = np.isnan(arr).all(axis=0)
+    if rim.any() and (~rim).any():
+        from scipy.ndimage import distance_transform_edt
+
+        _, (ri, ci) = distance_transform_edt(rim, return_indices=True)
+        out = out.copy(data=arr[:, ri, ci])
     return out
 
 

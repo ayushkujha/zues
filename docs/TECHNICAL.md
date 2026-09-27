@@ -398,3 +398,33 @@ React 19 + TypeScript + Vite, MapLibre GL 6 (OSM raster basemap, muted), Rechart
 | Farmer view | `#/farmer/<gp>` | Mobile-first, English/Hindi/Kannada; find panchayat by search or GPS; today's forecast, "what to do" advisories by crop, read-aloud (browser speech), next 4 days |
 
 Development: `npm run dev` in `web/` (proxies `/api` to `pcast serve` on :8000). Note: MapLibre 6's worker is bundled via `?worker&url` + `setWorkerUrl`. On this machine `web/node_modules` is a junction to `%USERPROFILE%\.cache\panchayatcast-web\node_modules` (outside OneDrive).
+
+---
+
+## 16. Real pilot: Dharwad district, Karnataka
+
+Built with `pcast pilot configs/region.dharwad.yaml` (all open data, resumable), then `pcast train dharwad` and `pcast evaluate dharwad`. Model version `20260927-101426`; report in `reports/dharwad/<version>/summary.md`.
+
+| Item | Value |
+|---|---|
+| Boundaries | 145 Gram Panchayats in 8 blocks, LGD-coded (LGD panchayat layer, CC0). Urban wards and town councils (Dharwad/Hubballi city, Navalgund TMC) are not GPs and are excluded (66 rows without GP codes). |
+| Grid | 0.01° (~1.1 km), 3,497 active cells |
+| Terrain / land cover | Copernicus DEM GLO-30, ESA WorldCover 2021 (elevation 467–738 m; ~87% crop/open vegetation) |
+| Daily fields, 2021-07-01 to 2024-12-31 | Rain: CHIRPS (0.05°). Tmax/Tmin/RH: ERA5-Land (0.1°, 53 points). Wind/cloud: ERA5 (0.25°, 12 points), via Open-Meteo |
+| Splits | train Jul 2021–Jun 2023 · val Jul–Dec 2023 · test 2024 |
+| Stations | none yet (so no station CV and no M3S) |
+| Training time | ~6 min on a laptop CPU (8 variables, 300k rows each); rain quantile mapping auto-selected (heavy-rain CSI on validation 0.45 → 0.55) |
+
+**Results (held-out 2024, truth = panchayat means of the gridded fields):**
+
+| Evaluation | Finding |
+|---|---|
+| Perfect block input | RMSE reduction vs copying the block value: Tmax −64%, Tmin −53%, RH max −49%, RH min −50%, wind −51%, cloud −34%, rain −17%. Heavy rain (≥ 64.5 mm) CSI 0.19 → 0.53 (interpolation alone reaches 0.54). |
+| Forecast mode | Day 1: rain −5%, Tmax −6%, RH max −7%; ≈ 0% by days 3–5; wind and cloud ≈ −1% worse. The emulated block-forecast error is much larger than the sub-block variability in these smooth fields. |
+| Spatial CV (no climatology) | Tmax −36%, Tmin −28%, RH −30%/−31% still; rain −12% and wind −17% are *worse* than plain interpolation (−16%, −25%). |
+
+**Honest interpretation.** The fine "truth" is 5–25 km gridded data, so the measured within-block variability is small (e.g. Tmax ≈ 0.3 °C) and partly consists of those grids' fixed patterns, which the per-cell climatology learns easily. The real village-scale differences are larger and need station data (IMD AWS, KSNDMC) to measure; M3S is ready for that.
+
+**Runs created:** an emulated run for 20 Jul 2024 (monsoon: panchayat day-1 rain ranges 12–144 mm across the district, up to 53 mm within one block), and a live NWP run for the current date. One `pcast run` (145 GPs, 5 days, advisories) takes ~25 s including start-up; `pcast fetch` ~1 min.
+
+**M4 (U-Net) on the synthetic demo:** close to M3 but not better (rain RMSE 5.02 vs 4.60 at stations; temperature/RH within 0.01–0.02), best validation epoch 9 of 20, ~50 min CPU training. M3 stays the default.
