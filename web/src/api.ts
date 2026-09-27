@@ -14,7 +14,10 @@ import type {
   VariableId,
 } from "./types";
 
-export const API = "/api/v1";
+// Same-origin by default (`pcast serve`, or the Vite dev proxy). When the frontend is
+// hosted separately (e.g. Vercel), set VITE_API_BASE_URL to the backend origin at build time.
+const API_ORIGIN = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "").replace(/\/+$/, "");
+export const API = `${API_ORIGIN}/api/v1`;
 
 export class ApiError extends Error {
   status: number;
