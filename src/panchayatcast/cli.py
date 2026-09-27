@@ -97,11 +97,10 @@ def train(region: str = typer.Argument("demo"),
 
 def _evaluate_all(region: str, version: str | None, modes: list[str]) -> Path:
     from .models.registry import latest_version
+    from .storage.db import Repository
     from .store import RegionStore
     from .validate import evaluate as ev
     from .validate.report import write_report
-
-    from .storage.db import Repository
 
     version = version or latest_version(region)
     frames = {}

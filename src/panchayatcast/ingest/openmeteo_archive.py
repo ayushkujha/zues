@@ -114,7 +114,12 @@ def fetch_archive(points: pd.DataFrame, start: str, end: str, model: str, cache_
                 units = len(p) * math.ceil(n_days / 14)
                 for attempt in range(8):
                     pacer.wait(units, log)
-                    r = requests.get(ARCHIVE_URL, params=params, timeout=120)
+                    try:
+                        r = requests.get(ARCHIVE_URL, params=params, timeout=120)
+                    except (requests.ConnectionError, requests.Timeout) as e:
+                        log(f"[open-meteo] network error ({type(e).__name__}); retrying in {30 * (attempt + 1)} s")
+                        time.sleep(30 * (attempt + 1))
+                        continue
                     if r.status_code == 429:
                         log("[open-meteo] rate limited (429); waiting 60 s")
                         time.sleep(60 * (attempt + 1))
