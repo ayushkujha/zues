@@ -26,7 +26,7 @@ def test_models_predict_all_variables(trained):
 
     ctx = RegionContext.load("tiny")
     bundle = ModelBundle.load(ctx)
-    assert set(bundle.models) == {"M0", "M1", "M2", "M3"}
+    assert {"M0", "M1", "M2", "M3"} <= set(bundle.models)  # + M3S when there are enough stations
     store = RegionStore("tiny")
     dates = pd.date_range("2023-07-01", periods=4)
     blk = {v: ctx.block_means(store.load_fine_active(v, ctx.weights, "2023-07-01", "2023-07-04")[1])
