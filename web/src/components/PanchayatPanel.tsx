@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { SEVERITY_ORDER, VARIABLES, dayLabel, cropLabel, fmtRain, fmtVar, signed, weatherIcon } from "../lib/format";
+import { SEVERITY_ORDER, VARIABLES, cropLabel, dayLabel, fmt, fmtRain, signed } from "../lib/format";
 import type { Advisory, GPForecast } from "../types";
 import { ConfidenceBadge, SeverityBadge } from "./Badges";
 import { RainChart, TemperatureChart } from "./ForecastCharts";
+import { Icon, WeatherIcon } from "./Icon";
 
 interface Props {
   runId: string;
@@ -12,6 +13,15 @@ interface Props {
   onDay: (i: number) => void;
   onClose: () => void;
 }
+
+const LANG_OPTIONS = [
+  { id: "en", label: "EN" },
+  { id: "hi", label: "हिं" },
+  { id: "kn", label: "ಕ" },
+];
+
+// For these variables a higher value is "wetter", so the delta colours are flipped.
+const WET = new Set(["rain_mm", "rh_max_pct", "rh_min_pct"]);
 
 export default function PanchayatPanel({ runId, gp, dayIndex, onDay, onClose }: Props) {
   const [fc, setFc] = useState<GPForecast | null>(null);
@@ -29,116 +39,140 @@ export default function PanchayatPanel({ runId, gp, dayIndex, onDay, onClose }: 
     api.gpAdvisories(runId, gp, lang).then(setAdv).catch(() => setAdv([]));
   }, [runId, gp, lang]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const day = fc?.days[dayIndex];
   const sorted = [...adv].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
 
   return (
-    <aside className="panel" aria-label="Panchayat detail">
-      <div className="panel-head">
-        <div className="row">
-          <div>
-            <h2 style={{ fontSize: 17 }}>{fc?.gp_name ?? "…"}</h2>
-            <div className="muted small">
-              {fc ? `${fc.block_name} · ${fc.area_km2?.toFixed(1)} km² · LGD ${fc.gp_lgd}` : "Loading"}
-            </div>
+    <aside className="drawer" aria-label="Panchayat detail">
+      <div className="drawer-head">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2>{fc?.gp_name ?? "Loading…"}</h2>
+          <div className="meta">
+            {fc ? <>{fc.block_name} block · {fc.area_km2?.toFixed(1)} km² · <span className="mono">LGD {fc.gp_lgd}</span></> : " "}
           </div>
-          <div className="spacer" />
-          <a className="btn sm" href={`#/farmer/${gp}`} title="Open the farmer view for this panchayat">Farmer view</a>
-          <button className="btn ghost sm" onClick={onClose} aria-label="Close panel">✕</button>
         </div>
+        <a className="btn sm" href={`#/farmer/${gp}`} title="Open what a farmer in this panchayat sees">
+          <Icon name="phone" size={14} /> Farmer view
+        </a>
+        <button className="iconbtn sm" onClick={onClose} aria-label="Close panel" title="Close (Esc)"><Icon name="x" /></button>
       </div>
-      <div className="panel-body">
-        {err && <div className="errorbox">{err}</div>}
+
+      <div className="drawer-body">
+        {err && <div className="notice error"><Icon name="alert" /><span>{err}</span></div>}
+        {!fc && !err && <div className="empty" style={{ padding: 40 }}><span className="spinner" /></div>}
         {fc && (
           <>
-            <div className="daycards">
+            <div className="days5" role="tablist" aria-label="Forecast day">
               {fc.days.map((d, i) => (
-                <button key={d.valid_date} className={`daycard ${i === dayIndex ? "on" : ""}`} onClick={() => onDay(i)}>
-                  <div className="dd">{dayLabel(d.valid_date).split(",")[0]}</div>
-                  <div className="ic" aria-hidden>{weatherIcon(d.rain_mm?.value, d.cloud_okta?.value)}</div>
-                  <div className="rv">{fmtRain(d.rain_mm?.value ?? 0)} mm</div>
-                  <div className="tv">{d.tmax_c?.value?.toFixed(0)}° / {d.tmin_c?.value?.toFixed(0)}°</div>
+                <button key={d.valid_date} className={`day5 ${i === dayIndex ? "on" : ""}`} onClick={() => onDay(i)} role="tab" aria-selected={i === dayIndex}>
+                  <span className="dn">{dayLabel(d.valid_date).split(",")[0]}</span>
+                  <WeatherIcon rain={d.rain_mm?.value} cloud={d.cloud_okta?.value} size={24} />
+                  <span className="rv">{fmtRain(d.rain_mm?.value ?? 0)}<small className="faint"> mm</small></span>
+                  <span className="tv">{fmt(d.tmax_c?.value, 0)}° / {fmt(d.tmin_c?.value, 0)}°</span>
                 </button>
               ))}
             </div>
 
-            <section>
-              <h3 className="small muted" style={{ textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Temperature (°C)</h3>
-              <TemperatureChart days={fc.days} />
-            </section>
-            <section>
-              <h3 className="small muted" style={{ textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Rainfall (mm/day)</h3>
-              <RainChart days={fc.days} />
-            </section>
-
             {day && (
               <section>
-                <div className="row" style={{ marginBottom: 6 }}>
-                  <h3 className="small muted" style={{ textTransform: "uppercase", letterSpacing: ".03em" }}>
-                    {dayLabel(day.valid_date, "long")}: panchayat vs block
-                  </h3>
-                </div>
-                <div className="table-wrap">
-                  <table className="tbl">
-                    <thead>
-                      <tr><th>Variable</th><th className="r">Panchayat</th><th className="r">Block</th><th className="r">Diff</th><th>Range (p10–p90)</th></tr>
-                    </thead>
-                    <tbody>
-                      {VARIABLES.map((v) => {
-                        const x = day[v.id];
-                        if (!x) return null;
-                        const diff = x.value !== null && x.block !== null ? x.value - x.block : null;
-                        return (
-                          <tr key={v.id}>
-                            <td>{v.label}</td>
-                            <td className="r"><b>{fmtVar(v.id, x.value)}</b></td>
-                            <td className="r">{fmtVar(v.id, x.block)}</td>
-                            <td className="r">{signed(diff, v.digits)}</td>
-                            <td className="small muted num">
-                              {x.p10 !== null && x.p90 !== null ? `${x.p10.toFixed(v.digits)}–${x.p90.toFixed(v.digits)}` : "–"}{" "}
-                              <ConfidenceBadge level={x.confidence} />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {day.wind_dir_deg && (
-                        <tr><td>Wind direction</td><td className="r"><b>{day.wind_dir_deg.value?.toFixed(0)}°</b></td><td className="r">{day.wind_dir_deg.block?.toFixed(0)}°</td><td /><td /></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                <h3>{dayLabel(day.valid_date, "long")}</h3>
+                <table className="cmp">
+                  <thead>
+                    <tr>
+                      <td />
+                      <td className="gpv small faint">Panchayat</td>
+                      <td className="blk small">Block</td>
+                      <td className="dlt small faint">Diff</td>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {VARIABLES.map((v) => {
+                      const x = day[v.id];
+                      if (!x) return null;
+                      const diff = x.value !== null && x.block !== null ? x.value - x.block : null;
+                      const warmer = diff !== null && Math.abs(diff) >= 0.05 ? (diff > 0) !== WET.has(v.id) : null;
+                      return (
+                        <tr key={v.id}>
+                          <td>
+                            {v.label} <span className="faint small">{v.unit}</span>
+                            {x.confidence === "low" && <> <ConfidenceBadge level="low" /></>}
+                          </td>
+                          <td className="gpv" title={x.p10 !== null && x.p90 !== null ? `Likely range ${fmt(x.p10, v.digits)}–${fmt(x.p90, v.digits)}` : undefined}>
+                            {fmt(x.value, v.digits)}
+                            {x.p10 !== null && x.p90 !== null && (
+                              <div className="small faint" style={{ fontWeight: 400 }}>{fmt(x.p10, v.digits)}–{fmt(x.p90, v.digits)}</div>
+                            )}
+                          </td>
+                          <td className="blk">{fmt(x.block, v.digits)}</td>
+                          <td className={`dlt ${warmer === null ? "faint" : warmer ? "up" : "down"}`}>{signed(diff, v.digits)}</td>
+                        </tr>
+                      );
+                    })}
+                    {day.wind_dir_deg?.value !== null && day.wind_dir_deg?.value !== undefined && (
+                      <tr>
+                        <td>Wind direction</td>
+                        <td className="gpv">{compass(day.wind_dir_deg.value)} <span className="faint small">{fmt(day.wind_dir_deg.value, 0)}°</span></td>
+                        <td className="blk">{day.wind_dir_deg.block !== null ? compass(day.wind_dir_deg.block) : "–"}</td>
+                        <td />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </section>
             )}
 
+            <section className="chart-card">
+              <h3>Temperature</h3>
+              <TemperatureChart days={fc.days} activeIndex={dayIndex} />
+            </section>
+            <section className="chart-card">
+              <h3>Rainfall</h3>
+              <RainChart days={fc.days} activeIndex={dayIndex} />
+            </section>
+
             <section>
-              <div className="row" style={{ marginBottom: 8 }}>
-                <h3 className="small muted" style={{ textTransform: "uppercase", letterSpacing: ".03em" }}>Advisories ({adv.length})</h3>
+              <div className="row" style={{ marginBottom: 10 }}>
+                <h3 style={{ margin: 0 }}>Advisories <span className="faint" style={{ fontWeight: 500 }}>{adv.length}</span></h3>
                 <div className="spacer" />
-                <select className="select" value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Advisory language">
-                  <option value="en">English</option>
-                  <option value="hi">हिंदी</option>
-                  <option value="kn">ಕನ್ನಡ</option>
-                </select>
+                <div className="seg" role="group" aria-label="Advisory language">
+                  {LANG_OPTIONS.map((l) => (
+                    <button key={l.id} className={lang === l.id ? "on" : ""} onClick={() => setLang(l.id)} lang={l.id}>{l.label}</button>
+                  ))}
+                </div>
               </div>
-              <div className="stack" style={{ gap: 8 }}>
-                {sorted.length === 0 && <div className="muted small">No advisories for this panchayat.</div>}
+              <div className="advlist">
+                {sorted.length === 0 && <div className="muted small">No advisories for this panchayat in this run.</div>}
                 {sorted.map((a) => (
-                  <div key={a.advisory_id} className={`adv sev-${a.severity}`}>
-                    <div className="meta">
-                      <SeverityBadge severity={a.severity} />
-                      <span className="badge neutral">{cropLabel(a.crop)}{a.crop_stage ? ` · ${a.crop_stage}` : ""}</span>
-                      {a.machine_translated && <span className="badge neutral" title="Translation not yet reviewed by a native speaker">unreviewed translation</span>}
+                  <div key={a.advisory_id} className={`adv ${a.severity}`}>
+                    <div>
+                      <div className="top">
+                        <SeverityBadge severity={a.severity} />
+                        <span className="small muted">{cropLabel(a.crop)}{a.crop_stage ? ` · ${a.crop_stage}` : ""}</span>
+                      </div>
+                      <p lang={a.lang}>{a.text}</p>
+                      <div className="foot">
+                        {dayLabel(a.valid_from).split(",")[0]}{a.valid_to !== a.valid_from ? `–${dayLabel(a.valid_to).split(",")[0]}` : ""} · {a.status}
+                        {a.machine_translated ? " · translation not yet reviewed" : ""}
+                      </div>
                     </div>
-                    <div>{a.text}</div>
-                    <div className="small faint" style={{ marginTop: 3 }}>Rule {a.rule_id} · {a.status}</div>
                   </div>
                 ))}
               </div>
             </section>
           </>
         )}
-        {!fc && !err && <div className="empty"><span className="spinner" /></div>}
       </div>
     </aside>
   );
+}
+
+function compass(deg: number): string {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 }

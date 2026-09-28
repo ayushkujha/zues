@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { SEVERITY_ICON } from "../lib/colors";
-import { SEVERITY_ORDER, fmtRain, rainCategoryIndex, weatherIcon } from "../lib/format";
+import { BrandMark, Icon, SeverityIcon, WeatherIcon, weatherKind } from "../components/Icon";
+import { SEVERITY_ORDER, fmtRain, rainCategoryIndex } from "../lib/format";
 import { CROP_NAMES, LANGS, RAIN_NAMES, SEVERITY_TEXT, t, type Lang } from "../lib/i18n";
 import { load, save } from "../lib/storage";
 import { go } from "../router";
 import { useApp } from "../state";
 import type { Advisory, GPForecast, GPSearchHit } from "../types";
+
+const LANG_SHORT: Record<Lang, string> = { en: "EN", hi: "हिं", kn: "ಕ" };
 
 export default function FarmerPage({ gp: routeGp }: { gp?: number }) {
   const { region, regionId, run, runId } = useApp();
@@ -20,6 +22,7 @@ export default function FarmerPage({ gp: routeGp }: { gp?: number }) {
   useEffect(() => { if (routeGp) setGp(routeGp); }, [routeGp]);
   useEffect(() => { if (regionId && gp) save(`farmer.gp.${regionId}`, gp); }, [regionId, gp]);
   useEffect(() => save("farmer.crop", crop), [crop]);
+  useEffect(() => { document.documentElement.lang = lang; return () => { document.documentElement.lang = "en"; }; }, [lang]);
   const setLang = (l: Lang) => { setLangState(l); save("farmer.lang", l); };
   const locale = LANGS.find((l) => l.id === lang)!.locale;
 
@@ -50,10 +53,10 @@ export default function FarmerPage({ gp: routeGp }: { gp?: number }) {
 
   const speak = () => {
     const synth = window.speechSynthesis;
-    if (!synth || !day1) return;
+    if (!synth || !day1 || !fc) return;
     if (speaking) { synth.cancel(); setSpeaking(false); return; }
     const rain = day1.rain_mm?.value ?? 0;
-    const summary = `${fc!.gp_name}. ${weekday(day1.valid_date, "long")}. ${RAIN_NAMES[lang][rainCategoryIndex(rain)]}, ${rain.toFixed(0)} mm. ${t("max", lang)} ${day1.tmax_c?.value?.toFixed(0)}°, ${t("min", lang)} ${day1.tmin_c?.value?.toFixed(0)}°.`;
+    const summary = `${fc.gp_name}. ${weekday(day1.valid_date, "long")}. ${RAIN_NAMES[lang][rainCategoryIndex(rain)]}, ${rain.toFixed(0)} mm. ${t("max", lang)} ${day1.tmax_c?.value?.toFixed(0)}°, ${t("min", lang)} ${day1.tmin_c?.value?.toFixed(0)}°.`;
     const text = [summary, t("whatToDo", lang), ...(todo.length ? todo.map((a) => a.text) : [t("noAdvice", lang)])].join(" ");
     const u = new SpeechSynthesisUtterance(text);
     u.lang = LANGS.find((l) => l.id === lang)!.speech;
@@ -67,90 +70,116 @@ export default function FarmerPage({ gp: routeGp }: { gp?: number }) {
     setSpeaking(true);
   };
 
+  const kind = day1 ? weatherKind(day1.rain_mm?.value, day1.cloud_okta?.value) : "partly";
+
   return (
-    <div className="farmer">
-      <div className="row" style={{ marginBottom: 14 }}>
-        <a href="#/" className="btn ghost sm" aria-label="Back to dashboard">←</a>
-        <h1>{t("title", lang)}</h1>
-      </div>
-      <div className="langs" style={{ marginBottom: 14 }} role="group" aria-label="Language">
-        {LANGS.map((l) => (
-          <button key={l.id} className={l.id === lang ? "on" : ""} onClick={() => setLang(l.id)} lang={l.id}>{l.label}</button>
-        ))}
-      </div>
-      {demo && <div className="errorbox small" style={{ marginBottom: 12 }}>⚠️ {t("demo", lang)}</div>}
-
-      {!gp || !regionId ? (
-        regionId ? <Chooser regionId={regionId} lang={lang} onPick={(id) => { setGp(id); go(`/farmer/${id}`); }} /> : <div className="empty"><span className="spinner" /></div>
-      ) : !runId ? (
-        <div className="empty">{t("noForecast", lang)}</div>
-      ) : !fc || !day1 ? (
-        <div className="empty"><span className="spinner" /></div>
-      ) : (
-        <div className="stack" style={{ gap: 14 }}>
-          <div className="row">
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 19 }}>📍 {fc.gp_name}</div>
-              <div className="muted small">{fc.block_name}</div>
-            </div>
-            <div className="spacer" />
-            <button className="btn sm" onClick={() => { setGp(null); go("/farmer"); }}>{t("change", lang)}</button>
-          </div>
-
-          <div className="card today">
-            <div className="big" aria-hidden>{weatherIcon(day1.rain_mm?.value, day1.cloud_okta?.value)}</div>
-            <div className="muted">{t("forecast", lang)} · {weekday(day1.valid_date, "long")}</div>
-            <div className="cat">{RAIN_NAMES[lang][rainCategoryIndex(day1.rain_mm?.value)]} · {fmtRain(day1.rain_mm?.value ?? 0)} mm</div>
-            <div className="temps">
-              {t("max", lang)} {day1.tmax_c?.value?.toFixed(0)}° · {t("min", lang)} {day1.tmin_c?.value?.toFixed(0)}° · {t("humidity", lang)} {day1.rh_max_pct?.value?.toFixed(0)}% · {t("wind", lang)} {day1.wind_kmph?.value?.toFixed(0)} km/h
-            </div>
-          </div>
-
-          <div className="card todo">
-            <h2>
-              <span>🌾 {t("whatToDo", lang)}</span>
-              <span className="spacer" />
-              {"speechSynthesis" in window && (
-                <button className="btn sm" onClick={speak} aria-label={t("listen", lang)}>{speaking ? `⏹ ${t("stop", lang)}` : `🔊 ${t("listen", lang)}`}</button>
-              )}
-            </h2>
-            {crops.length > 0 && (
-              <div className="langs" style={{ flexWrap: "wrap", marginBottom: 10 }}>
-                <button className={crop === "all" ? "on" : ""} onClick={() => setCrop("all")}>{t("allCrops", lang)}</button>
-                {crops.map((c) => (
-                  <button key={c} className={crop === c ? "on" : ""} onClick={() => setCrop(c)}>{CROP_NAMES[lang][c] ?? c}</button>
-                ))}
-              </div>
-            )}
-            {todo.length === 0 && <div className="item sev-green">{t("noAdvice", lang)}</div>}
-            {todo.map((a) => (
-              <div key={a.advisory_id} className={`item sev-${a.severity}`}>
-                <div className="sev" style={{ color: `var(--sev-${a.severity})` }}>
-                  <span aria-hidden>{SEVERITY_ICON[a.severity]}</span>
-                  {SEVERITY_TEXT[lang][a.severity]}
-                  {a.crop !== "all" && <span className="muted" style={{ fontWeight: 500 }}>· {CROP_NAMES[lang][a.crop] ?? a.crop}</span>}
-                </div>
-                <div lang={a.lang}>{a.text}</div>
-                {a.machine_translated && t("unreviewed", lang) && <div className="small faint" style={{ marginTop: 4 }}>{t("unreviewed", lang)}</div>}
-              </div>
+    <div className={`farmer-shell wx-${kind}`}>
+      <div className="farmer">
+        <div className="f-top">
+          <a href="#/" className="iconbtn" aria-label="Back to dashboard" title="Dashboard"><Icon name="back" /></a>
+          <span className="f-app"><BrandMark size={22} /> {t("title", lang)}</span>
+          <div className="seg f-langs" role="group" aria-label="Language">
+            {LANGS.map((l) => (
+              <button key={l.id} className={l.id === lang ? "on" : ""} onClick={() => setLang(l.id)} lang={l.id} aria-label={l.label} aria-pressed={l.id === lang}>
+                {LANG_SHORT[l.id]}
+              </button>
             ))}
           </div>
-
-          <div>
-            <h2 style={{ fontSize: 17, marginBottom: 8 }}>{t("nextDays", lang)}</h2>
-            <div className="days">
-              {fc.days.slice(1).map((d) => (
-                <div key={d.valid_date}>
-                  <div className="dn">{weekday(d.valid_date)}</div>
-                  <div className="ic" aria-hidden>{weatherIcon(d.rain_mm?.value, d.cloud_okta?.value)}</div>
-                  <div className="rv">{fmtRain(d.rain_mm?.value ?? 0)} mm</div>
-                  <div className="small muted num">{d.tmax_c?.value?.toFixed(0)}°/{d.tmin_c?.value?.toFixed(0)}°</div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
-      )}
+
+        {demo && (
+          <div className="notice warn" style={{ marginBottom: 16, fontSize: 14 }}>
+            <Icon name="info" />
+            <span>{t("demo", lang)}</span>
+          </div>
+        )}
+
+        {!gp || !regionId ? (
+          regionId ? <Chooser regionId={regionId} lang={lang} onPick={(id) => { setGp(id); go(`/farmer/${id}`); }} /> : <div className="empty"><span className="spinner" /></div>
+        ) : !runId ? (
+          <div className="empty">{t("noForecast", lang)}</div>
+        ) : !fc || !day1 ? (
+          <div className="empty"><span className="spinner" /></div>
+        ) : (
+          <>
+            <div className="f-place">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h1>{fc.gp_name}</h1>
+                <div className="blk"><Icon name="pin" size={14} /> {fc.block_name}</div>
+              </div>
+              <button className="btn sm" onClick={() => { setGp(null); go("/farmer"); }}>{t("change", lang)}</button>
+            </div>
+
+            <div className="f-hero">
+              <WeatherIcon rain={day1.rain_mm?.value} cloud={day1.cloud_okta?.value} size={96} className="wxbig" />
+              <div>
+                <div className="when">{weekday(day1.valid_date, "long")}</div>
+                <div className="temp num">{day1.tmax_c?.value?.toFixed(0)}°<span> / {day1.tmin_c?.value?.toFixed(0)}°</span></div>
+                <div className="cond">{RAIN_NAMES[lang][rainCategoryIndex(day1.rain_mm?.value)]}</div>
+              </div>
+            </div>
+
+            <div className="f-strip">
+              <div><Icon name="drop" size={18} /><b className="num">{fmtRain(day1.rain_mm?.value ?? 0)} mm</b><span>{t("rain", lang)}</span></div>
+              <div><Icon name="droplets" size={18} /><b className="num">{day1.rh_max_pct?.value?.toFixed(0)}%</b><span>{t("humidity", lang)}</span></div>
+              <div><Icon name="wind" size={18} /><b className="num">{day1.wind_kmph?.value?.toFixed(0)} km/h</b><span>{t("wind", lang)}</span></div>
+            </div>
+
+            {"speechSynthesis" in window && (
+              <button className={`btn lg block ${speaking ? "" : "primary"}`} onClick={speak} style={{ marginTop: 16 }}>
+                <Icon name={speaking ? "stop" : "speaker"} size={18} />
+                {speaking ? t("stop", lang) : t("listen", lang)}
+              </button>
+            )}
+
+            <section className="f-sec">
+              <h2><Icon name="sprout" size={20} /> {t("whatToDo", lang)}</h2>
+              {crops.length > 0 && (
+                <div className="f-crops" role="group" aria-label={t("forCrop", lang)}>
+                  <button className={crop === "all" ? "on" : ""} onClick={() => setCrop("all")}>{t("allCrops", lang)}</button>
+                  {crops.map((c) => (
+                    <button key={c} className={crop === c ? "on" : ""} onClick={() => setCrop(c)}>{CROP_NAMES[lang][c] ?? c}</button>
+                  ))}
+                </div>
+              )}
+              <div className="f-todo">
+                {todo.length === 0 && <div className="f-card green"><p>{t("noAdvice", lang)}</p></div>}
+                {todo.map((a) => (
+                  <div key={a.advisory_id} className={`f-card ${a.severity}`}>
+                    <div className="head">
+                      <span className={`sev sev-${a.severity}`} style={{ fontSize: 14 }}>
+                        <SeverityIcon severity={a.severity} size={12} />
+                        {SEVERITY_TEXT[lang][a.severity]}
+                      </span>
+                      {a.crop !== "all" && <span className="muted">· {CROP_NAMES[lang][a.crop] ?? a.crop}</span>}
+                    </div>
+                    <p lang={a.lang}>{a.text}</p>
+                    {a.machine_translated && t("unreviewed", lang) && <div className="rv">{t("unreviewed", lang)}</div>}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="f-sec">
+              <h2>{t("nextDays", lang)}</h2>
+              <div className="f-days">
+                {fc.days.slice(1).map((d) => (
+                  <div key={d.valid_date} className="f-day">
+                    <span className="dn">{weekday(d.valid_date)}</span>
+                    <WeatherIcon rain={d.rain_mm?.value} cloud={d.cloud_okta?.value} size={32} />
+                    <span className="rv">{fmtRain(d.rain_mm?.value ?? 0)} mm</span>
+                    <span className="tv">{d.tmax_c?.value?.toFixed(0)}° / {d.tmin_c?.value?.toFixed(0)}°</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <p className="f-foot">
+              PanchayatCast · {new Date(`${fc.run.issue_date}T00:00:00`).toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" })}
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -191,21 +220,27 @@ function Chooser({ regionId, lang, onPick }: { regionId: string; lang: Lang; onP
   };
 
   return (
-    <div className="card card-pad stack">
-      <h2 style={{ fontSize: 18 }}>{t("choose", lang)}</h2>
-      <button className="btn primary bigbtn" onClick={locate} disabled={locating}>
-        {locating ? t("locating", lang) : `📍 ${t("useLocation", lang)}`}
+    <div className="f-choose">
+      <h2>{t("choose", lang)}</h2>
+      <button className="btn primary lg block" onClick={locate} disabled={locating}>
+        {locating ? <span className="spinner" /> : <Icon name="locate" size={18} />}
+        {locating ? t("locating", lang) : t("useLocation", lang)}
       </button>
-      <input className="input" placeholder={t("search", lang)} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("search", lang)} />
-      {err && <div className="errorbox small">{err}</div>}
-      <div className="hits">
-        {hits.map((h) => (
-          <button key={h.gp_lgd} onClick={() => onPick(h.gp_lgd)}>
-            {h.gp_name}
-            <small>{h.block_name}</small>
-          </button>
-        ))}
+      <div className="search">
+        <Icon name="search" size={17} />
+        <input className="input" placeholder={t("search", lang)} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("search", lang)} style={{ paddingLeft: 38 }} />
       </div>
+      {err && <div className="notice error"><Icon name="alert" /><span>{err}</span></div>}
+      {hits.length > 0 && (
+        <div className="f-hits">
+          {hits.map((h) => (
+            <button key={h.gp_lgd} onClick={() => onPick(h.gp_lgd)}>
+              <span>{h.gp_name}</span>
+              <small>{h.block_name} <Icon name="chevronRight" size={14} className="inline" /></small>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

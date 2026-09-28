@@ -33,6 +33,7 @@ export function fmtVar(id: VariableId, v: number | null | undefined, withUnit = 
 
 export function signed(v: number | null | undefined, digits = 1): string {
   if (v === null || v === undefined) return "–";
+  if (Math.abs(v) < 0.5 * 10 ** -digits) return "0";
   return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(digits);
 }
 
