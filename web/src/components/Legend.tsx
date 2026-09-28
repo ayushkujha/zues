@@ -1,43 +1,36 @@
 import type { Scale } from "../lib/colors";
 
-export default function Legend({ title, scale }: { title: string; scale: Scale }) {
-  if (scale.kind === "categorical") {
-    return (
-      <div className="legend">
-        <div className="legend-title">{title}</div>
-        <div className="legend-cats">
-          {scale.stops.map((s) => (
-            <FragmentRow key={s.label} color={s.color} label={s.label} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-  const first = scale.stops[0]?.label;
-  const mid = scale.stops[Math.floor(scale.stops.length / 2)]?.label;
-  const last = scale.stops[scale.stops.length - 1]?.label;
-  return (
-    <div className="legend">
-      <div className="legend-title">{title}</div>
-      <div className="legend-bar">
-        {scale.stops.map((s, i) => (
-          <span key={i} style={{ background: s.color }} />
-        ))}
-      </div>
-      <div className="legend-labels">
-        <span>{first}</span>
-        <span>{mid}</span>
-        <span>{last}</span>
-      </div>
-    </div>
-  );
+interface Props {
+  title: string;
+  unit?: string;
+  scale: Scale;
+  /** Words under the two ends of a diverging legend, e.g. ["drier", "wetter"]. */
+  ends?: [string, string];
 }
 
-function FragmentRow({ color, label }: { color: string; label: string }) {
+export default function Legend({ title, unit, scale, ends }: Props) {
   return (
-    <>
-      <i style={{ background: color }} />
-      <span className="num">{label}</span>
-    </>
+    <div className="legend">
+      <div className="legend-title">
+        <b>{title}</b>
+        {unit && <span>{unit}</span>}
+      </div>
+      <div className="legend-steps" aria-hidden="true">
+        {scale.steps.map((c, i) => <i key={i} style={{ background: c }} />)}
+      </div>
+      <div className="legend-ticks" aria-hidden="true">
+        {scale.ticks.map((t) => (
+          <span key={t.at} style={{ left: `${t.at * 100}%`, transform: t.at === 0 ? "none" : t.at === 1 ? "translateX(-100%)" : undefined }}>
+            {t.label}
+          </span>
+        ))}
+      </div>
+      {ends && ends[0] && (
+        <div className="legend-ends">
+          <span>← {ends[0]}</span>
+          <span>{ends[1]} →</span>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,16 +1,16 @@
-import type { Severity, VariableId } from "../types";
+import type { VariableId } from "../types";
 import { RAIN_CATEGORIES, rainCategoryIndex } from "./format";
 
-// Rain: sequential blue binned by IMD categories, ending in violet for extremes.
-export const RAIN_COLORS = ["#e9eef4", "#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b", "#4a3aa7"];
+// Rain: sequential blue binned by IMD categories, ending in violet for the extremes.
+export const RAIN_COLORS = ["#eef1f5", "#cfe3f7", "#8fbfeb", "#4a93db", "#1f62b3", "#123f7c", "#4b2f9b"];
 
 // One-hue sequential ramps (light -> dark), 7 steps each.
-const RAMPS: Record<string, string[]> = {
-  warm: ["#fde9d9", "#f9c9a7", "#f4a472", "#eb6834", "#c9501f", "#a03d17", "#74290f"],
-  teal: ["#d6f2ea", "#a6e0cf", "#6fcab0", "#1baf7a", "#148a60", "#0e6848", "#094a33"],
-  violet: ["#e6e3f8", "#c9c3f0", "#a79de5", "#8577d6", "#6655c0", "#4a3aa7", "#33287a"],
-  gray: ["#f3f3f1", "#dcdbd6", "#c3c2b7", "#a3a29a", "#898781", "#6b6a65", "#52514e"],
-};
+const RAMPS = {
+  warm: ["#fff1d6", "#fdd79c", "#f9b566", "#f18d44", "#df632e", "#bb4122", "#8a2a18"],
+  teal: ["#e6f5f1", "#bfe6dc", "#8dd1c0", "#55b6a0", "#2b9580", "#177563", "#0c5649"],
+  violet: ["#ecebf8", "#d0cdf0", "#aea8e3", "#8a80d2", "#6a5cbd", "#4f41a1", "#35297a"],
+  gray: ["#f4f5f7", "#dde1e7", "#c3c9d2", "#a4adb9", "#87909e", "#6a7381", "#4f5763"],
+} as const;
 
 const RAMP_FOR: Record<VariableId, keyof typeof RAMPS> = {
   rain_mm: "teal",
@@ -24,40 +24,42 @@ const RAMP_FOR: Record<VariableId, keyof typeof RAMPS> = {
 };
 
 // Diverging: blue <- neutral -> red. Each arm is ordered light -> dark (by magnitude).
-const DIV_BLUE = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab"];
-const DIV_MID = "#f0efec";
-const DIV_RED = ["#fbd3d2", "#f19b9a", "#e34948", "#b8302f"];
+const DIV_BLUE = ["#cfe3f7", "#8fbfeb", "#4a93db", "#1f62b3"];
+const DIV_MID = "#f1f1ef";
+const DIV_RED = ["#fbd5cf", "#f4a194", "#e2604c", "#b73a2b"];
 
-export const SEVERITY_COLOR: Record<Severity, string> = {
-  red: "#C62828",
-  orange: "#EF6C00",
-  yellow: "#F9A825",
-  green: "#2E7D32",
-};
-
-export const SEVERITY_ICON: Record<Severity, string> = {
-  red: "⛔",
-  orange: "⚠️",
-  yellow: "👁️",
-  green: "✅",
+/** Words for the two ends of the difference legend (below / above the block value). */
+export const DIFF_WORDS: Record<VariableId, [string, string]> = {
+  rain_mm: ["drier", "wetter"],
+  tmax_c: ["cooler", "warmer"],
+  tmin_c: ["cooler", "warmer"],
+  rh_max_pct: ["drier air", "more humid"],
+  rh_min_pct: ["drier air", "more humid"],
+  wind_kmph: ["calmer", "windier"],
+  wind_dir_deg: ["", ""],
+  cloud_okta: ["clearer", "cloudier"],
 };
 
 export interface Scale {
   kind: "categorical" | "sequential" | "diverging";
   color: (v: number | null | undefined) => string;
-  stops: { color: string; label: string }[];
+  /** Colour steps, low to high. */
+  steps: string[];
+  /** Tick labels at step boundaries: position 0..1 along the bar. */
+  ticks: { at: number; label: string }[];
+  domain: [number, number];
 }
 
-const NO_DATA = "#d9d9d9";
+const NO_DATA = "#d4d7dc";
 
 export function rainScale(): Scale {
+  const bounds = RAIN_CATEGORIES.slice(1).map((c) => c.min);
   return {
     kind: "categorical",
     color: (v) => (v === null || v === undefined ? NO_DATA : RAIN_COLORS[rainCategoryIndex(v)]),
-    stops: RAIN_CATEGORIES.map((c, i) => ({
-      color: RAIN_COLORS[i],
-      label: c.max === Infinity ? `≥ ${c.min}` : i === 0 ? "0" : `${c.min}–${c.max}`,
-    })),
+    steps: RAIN_COLORS,
+    ticks: bounds.map((b, i) => ({ at: (i + 1) / RAIN_COLORS.length, label: String(b) })),
+    domain: [0, 204.5],
   };
 }
 
@@ -69,14 +71,17 @@ export function sequentialScale(variable: VariableId, min: number, max: number, 
     const t = Math.min(0.999, Math.max(0, (v - min) / span));
     return ramp[Math.floor(t * ramp.length)];
   };
-  const stops = ramp.map((c, i) => ({
-    color: c,
-    label: (min + (span * (i + 0.5)) / ramp.length).toFixed(digits),
-  }));
-  return { kind: "sequential", color, stops };
+  const tickAt = [0, 0.5, 1];
+  return {
+    kind: "sequential",
+    color,
+    steps: [...ramp],
+    ticks: tickAt.map((at) => ({ at, label: (min + span * at).toFixed(digits) })),
+    domain: [min, max],
+  };
 }
 
-/** Difference from the block value; for rain, wetter is blue (so the sign is flipped). */
+/** Difference from the block value; for rain and humidity, wetter is blue (so the sign is flipped). */
 export function divergingScale(variable: VariableId, maxAbs: number, digits = 1): Scale {
   const m = maxAbs || 1;
   const flip = variable === "rain_mm" || variable.startsWith("rh_");
@@ -89,7 +94,13 @@ export function divergingScale(variable: VariableId, maxAbs: number, digits = 1)
     const arm = t < 0 ? neg : pos;
     return arm[Math.min(arm.length - 1, Math.floor(((Math.abs(t) - 0.1) / 0.9) * arm.length))];
   };
-  const steps = [-1, -0.7, -0.4, -0.15, 0, 0.15, 0.4, 0.7, 1];
-  const stops = steps.map((s) => ({ color: color(s * m), label: (s * m).toFixed(digits) }));
-  return { kind: "diverging", color, stops };
+  const steps = [...[...neg].reverse(), DIV_MID, ...pos];
+  const f = (x: number) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(digits);
+  return {
+    kind: "diverging",
+    color,
+    steps,
+    ticks: [{ at: 0, label: f(-m) }, { at: 0.5, label: "0" }, { at: 1, label: f(m) }],
+    domain: [-m, m],
+  };
 }

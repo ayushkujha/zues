@@ -28,11 +28,16 @@ interface Props {
   view?: MapViewState | null;
   onView?: (v: MapViewState) => void;
   showLowConfidence?: boolean;
+  /** Extra space kept clear when fitting the region (e.g. for floating panels). */
+  fitPadding?: { top: number; right: number; bottom: number; left: number };
+  navPosition?: "top-right" | "bottom-right";
 }
 
 const EMPTY = { type: "FeatureCollection", features: [] } as const;
 type SetDataArg = Parameters<GeoJSONSource["setData"]>[0];
 // Standard OSM raster tiles (no key), muted so the data colours stand out.
+const BG_LIGHT = "#eceff2";
+const BG_DARK = "#0f1317";
 const BASE_PAINT = {
   light: { "raster-saturation": -0.85, "raster-opacity": 0.8, "raster-brightness-max": 1, "raster-contrast": 0 },
   dark: { "raster-saturation": -1, "raster-opacity": 0.9, "raster-brightness-max": 0.3, "raster-contrast": 0.15 },
@@ -40,7 +45,7 @@ const BASE_PAINT = {
 
 export default function MapView({
   data, blocks, idKey, bbox, selectedId, basemap = true, dark = false, fillOpacity = 0.82,
-  onHover, onSelect, view, onView, showLowConfidence = false,
+  onHover, onSelect, view, onView, showLowConfidence = false, fitPadding, navPosition = "top-right",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
@@ -65,7 +70,7 @@ export default function MapView({
           },
         },
         layers: [
-          { id: "bg", type: "background", paint: { "background-color": dark ? "#12151a" : "#eef0ec" } },
+          { id: "bg", type: "background", paint: { "background-color": dark ? BG_DARK : BG_LIGHT } },
           { id: "base", type: "raster", source: "osm", layout: { visibility: "none" } },
         ],
       },
@@ -76,7 +81,7 @@ export default function MapView({
       pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
-    map.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new NavigationControl({ showCompass: false }), navPosition);
     mapRef.current = map;
 
     map.on("load", () => {
@@ -88,29 +93,35 @@ export default function MapView({
       });
       map.addLayer({
         id: "units-line", type: "line", source: "units",
-        paint: { "line-color": dark ? "#12151a" : "#ffffff", "line-width": 0.6, "line-opacity": 0.8 },
+        paint: { "line-color": dark ? BG_DARK : "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.4, 12, 1.2], "line-opacity": 0.85 },
       });
       map.addLayer({
         id: "units-lowconf", type: "line", source: "units",
         filter: ["==", ["get", "confidence"], "low"],
         layout: { visibility: "none" },
-        paint: { "line-color": dark ? "#e8ecef" : "#1c2321", "line-width": 1, "line-dasharray": [2, 2], "line-opacity": 0.55 },
+        paint: { "line-color": dark ? "#e8ecf1" : "#11151a", "line-width": 1, "line-dasharray": [2, 2], "line-opacity": 0.6 },
       });
       map.addLayer({
         id: "blocks-line", type: "line", source: "blocks",
-        paint: { "line-color": dark ? "#e8ecef" : "#1c2321", "line-width": 1.8, "line-opacity": 0.85 },
+        paint: { "line-color": dark ? "#e8ecf1" : "#11151a", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.1, 12, 2.2], "line-opacity": 0.7 },
       });
       map.addLayer({
         id: "units-hover", type: "line", source: "units",
         paint: {
-          "line-color": dark ? "#ffffff" : "#1c2321",
-          "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 2.2, 0],
+          "line-color": dark ? "#ffffff" : "#11151a",
+          "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 1.6, 0],
         },
+      });
+      // Selected unit: dark line on a white casing, readable on every fill colour.
+      map.addLayer({
+        id: "units-selected-casing", type: "line", source: "units",
+        filter: ["==", ["get", idKey], -1],
+        paint: { "line-color": "#ffffff", "line-width": 5, "line-opacity": 0.95 },
       });
       map.addLayer({
         id: "units-selected", type: "line", source: "units",
         filter: ["==", ["get", idKey], -1],
-        paint: { "line-color": "#1565c0", "line-width": 3.2 },
+        paint: { "line-color": "#11151a", "line-width": 2.2 },
       });
 
       map.on("mousemove", "units-fill", (e: MapLayerMouseEvent) => {
@@ -143,6 +154,9 @@ export default function MapView({
       setReady(true);
     });
 
+    // Floating panels cover part of the map; only honour that padding when there is room.
+    const fitPad = (w: number, h: number) =>
+      fitPadding && w > 760 && h > 420 ? fitPadding : 24;
     // The container can have zero size when the map is created (layout not settled yet),
     // so fit the region once it has a real size.
     let fitted = false;
@@ -151,7 +165,7 @@ export default function MapView({
       const { width, height } = entries[0].contentRect;
       if (!fitted && width > 50 && height > 50) {
         fitted = true;
-        if (!view) map.fitBounds(bbox as [number, number, number, number], { padding: 24, duration: 0 });
+        if (!view) map.fitBounds(bbox as [number, number, number, number], { padding: fitPad(width, height), duration: 0 });
       }
     });
     ro.observe(ref.current);
@@ -180,6 +194,7 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !ready) return;
     map.setFilter("units-selected", ["==", ["get", idKey], selectedId ?? -1]);
+    map.setFilter("units-selected-casing", ["==", ["get", idKey], selectedId ?? -1]);
   }, [selectedId, idKey, ready]);
 
   useEffect(() => {
@@ -196,9 +211,11 @@ export default function MapView({
     for (const k of Object.keys(paint) as (keyof typeof paint)[]) {
       map.setPaintProperty("base", k, paint[k]);
     }
-    map.setPaintProperty("bg", "background-color", dark ? "#12151a" : "#eef0ec");
-    map.setPaintProperty("blocks-line", "line-color", dark ? "#e8ecef" : "#1c2321");
-    map.setPaintProperty("units-line", "line-color", dark ? "#12151a" : "#ffffff");
+    map.setPaintProperty("bg", "background-color", dark ? BG_DARK : BG_LIGHT);
+    map.setPaintProperty("blocks-line", "line-color", dark ? "#e8ecf1" : "#11151a");
+    map.setPaintProperty("units-line", "line-color", dark ? BG_DARK : "#ffffff");
+    map.setPaintProperty("units-hover", "line-color", dark ? "#ffffff" : "#11151a");
+    map.setPaintProperty("units-lowconf", "line-color", dark ? "#e8ecf1" : "#11151a");
   }, [basemap, dark, ready]);
 
   useEffect(() => {

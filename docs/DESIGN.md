@@ -137,61 +137,61 @@ Farmer View
 └──────────────────────┘
 ```
 - Large icons, minimal numbers, advice first.
-- The 🔊 button reads the advisory aloud (text-to-speech, stretch goal).
+- The Listen button reads the forecast and advice aloud (browser text-to-speech).
 - Pages must stay light (< 200 KB); there is no map on the farmer view.
 
 ---
 
 ## 5. Visual design system
 
+Direction: a calm, precise forecasting console. Surfaces stay neutral so the weather data carries the colour; one green accent marks selection and primary actions. No emoji anywhere in the UI (they render differently on every device); all icons are inline SVG. Tokens live in `web/src/styles.css`.
+
 ### 5.1 Colour: UI tokens
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | `#F7F8F5` | `#12151A` | Page background |
-| `--surface` | `#FFFFFF` | `#1B2028` | Cards, panels |
-| `--text` | `#1C2321` | `#E8ECEF` | Primary text |
-| `--text-muted` | `#5B6660` | `#9AA4AD` | Secondary text |
-| `--primary` | `#2E7D32` | `#66BB6A` | Brand (agriculture green) |
-| `--accent` | `#1565C0` | `#64B5F6` | Links, selection (weather blue) |
-| `--border` | `#DDE2DC` | `#2C333D` | Dividers |
+| `--bg` | `#F5F6F8` | `#0C0F13` | Page background |
+| `--surface` / `--surface-2` | `#FFFFFF` / `#F0F2F5` | `#14181E` / `#1A1F26` | Cards, panels / insets, segmented controls |
+| `--text` / `--text-2` / `--text-3` | `#11151A` / `#4F5866` / `#858D99` | `#E8ECF1` / `#A5AEBB` / `#6E7784` | Primary / secondary / tertiary text |
+| `--accent` | `#116149` | `#3CBF8F` | Brand, selection, primary buttons |
+| `--border` | `#E2E5EA` | `#252B34` | Dividers |
+| `--warm` / `--cool` | `#D9622B` / `#2F6FB5` | `#FF8A52` / `#6AA7FF` | Max/min temperature, warmer/wetter deltas |
 
 ### 5.2 Colour: severity (IMD impact-based convention)
 
-| Level | Colour | Meaning |
-|---|---|---|
-| 🟢 Green | `#2E7D32` | No action needed |
-| 🟡 Yellow | `#F9A825` | Be aware / watch |
-| 🟠 Orange | `#EF6C00` | Be prepared |
-| 🔴 Red | `#C62828` | Take action |
+| Level | Colour | Shape | Label |
+|---|---|---|---|
+| Red | `#CF2E2E` | Octagon with bar | Take action |
+| Orange | `#E36D0E` | Triangle | Be prepared |
+| Yellow | `#D9A400` | Circle | Be aware |
+| Green | `#2F8A45` | Tick | No risk |
 
-Always pair colour with an icon and label so the meaning never depends on colour alone.
+Severity is always shape + colour + label (`SeverityIcon`), so it never depends on colour alone.
 
 ### 5.3 Colour: map scales
 
 | Variable | Scale type | Palette |
 |---|---|---|
-| Rainfall | Sequential, **binned by IMD categories** (0, 0.1–2.4, 2.5–15.5, 15.6–64.4, 64.5–115.5, 115.6–204.4, ≥204.5 mm) | White → light blue → deep blue → purple |
-| Tmax / Tmin | Sequential | Viridis-style or yellow → orange → red (colour-blind safe) |
-| RH | Sequential | Light teal → dark teal |
-| Wind | Sequential + arrows | Grey-green scale with direction arrows at panchayat centroids |
-| Cloud (okta 0–8) | Sequential | White → grey |
-| Difference (panchayat − block) | **Diverging** | Blue ← white → red |
-| Confidence | Hatch/opacity overlay | Low-confidence areas hatched |
+| Rainfall | Sequential, **binned by IMD categories** (0, 0.1–2.4, 2.5–15.5, 15.6–64.4, 64.5–115.5, 115.6–204.4, ≥204.5 mm) | Pale grey → light blue → deep blue → violet |
+| Tmax / Tmin | Sequential, 7 steps | Cream → orange → brick |
+| RH | Sequential, 7 steps | Light teal → dark teal |
+| Wind | Sequential, 7 steps | Light violet → dark violet |
+| Cloud (okta 0–8) | Sequential, 7 steps | Light grey → slate |
+| Difference (panchayat − block) | **Diverging**, labelled with words at both ends (drier/wetter, cooler/warmer…) | Blue ← neutral → red (flipped for rain and RH so wetter is blue) |
+| Confidence | Dashed outline (toggle) | Low-confidence panchayats outlined |
 
 ### 5.4 Typography
-- **Noto Sans** + **Noto Sans Devanagari / Kannada / Telugu / Tamil…** (supports all Indic scripts consistently).
-- Scale: 12 / 14 / 16 (body) / 20 / 24 / 32 px. The farmer view uses 18 px minimum body text.
-- Numbers in tables use tabular figures.
+- **IBM Plex Sans** (UI), **IBM Plex Mono** (IDs, rule codes, model versions), **IBM Plex Sans Devanagari** and **Noto Sans Kannada** for Indic text. PDFs use Noto (bundled).
+- Scale: 11.5 / 12.5 / 13.5 (UI body) / 15 / 20 / 26 px; big numbers 34–54 px. The farmer view uses 16–17 px body text.
+- All numbers use tabular figures.
 
 ### 5.5 Iconography
-- Weather icons: sun, partly cloudy, cloudy, light/moderate/heavy rain, thunderstorm, wind, heat.
-- Farm action icons: spray, irrigate, sow, harvest, drainage, livestock shelter.
-- Use an open-source icon set (e.g. Material Symbols + Meteocons, check licenses).
+- One line-icon set (24 px grid, 1.75 stroke) in `web/src/components/Icon.tsx`: UI actions, weather variables (drop, thermometer ↑/↓, droplets, wind, cloud) and weather glyphs (clear, partly cloudy, cloudy, drizzle, rain, storm) chosen from rain and cloud amounts.
 
 ### 5.6 Layout
-- Dashboard: left control panel (280 px), map fills the rest, detail panel slides in from the right (400 px).
-- Breakpoints: ≥1200 px full layout; 768–1199 px collapsible panels; <768 px stacked, map on top.
+- Top bar (56 px): brand, district, text tabs with an underline, data-source chip ("Demo data" / "Not an IMD bulletin"), bulletin picker with a source-coloured dot, farmer-view link, theme toggle.
+- Forecast page: full-bleed map. Floating left panel (variable, Panchayat/Block/Difference, stepped legend, "largest spread inside one block" callout, variable tiles, layers). Top-right: panchayats on alert. Bottom: 5-day timeline with the district average per day and play button. Clicking a panchayat opens a 440 px detail column on the right (the map shrinks rather than being covered).
+- Breakpoints: ≥1180 px full layout; <1180 px the left panel stops above the timeline; <760 px the panel collapses to title + legend ("Variables and layers" expands it) and the detail column becomes full-screen.
 
 ---
 
